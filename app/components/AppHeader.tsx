@@ -15,6 +15,7 @@ const NAV: NavItem[] = [
   { href: "/estoque", label: "Estoque" },
   { href: "/wip", label: "Em andamento" },
   { href: "/carteira", label: "Carteira" },
+  { href: "/disponivel", label: "Disponível" },
   { href: "/oportunidades", label: "Oportunidades" },
   { href: "/dashboard", label: "Dashboard" },
 ];
