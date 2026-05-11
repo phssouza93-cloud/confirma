@@ -16,6 +16,7 @@ const NAV: NavItem[] = [
   { href: "/wip", label: "Em andamento" },
   { href: "/carteira", label: "Carteira" },
   { href: "/oportunidades", label: "Oportunidades" },
+  { href: "/dashboard", label: "Dashboard" },
 ];
 
 export function AppHeader({ nome, perfil, rotaAtiva }: Props) {

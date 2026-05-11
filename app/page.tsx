@@ -91,8 +91,8 @@ export default async function Home() {
               titulo="Dashboard"
               descricao="KPIs e gargalos"
               cor="#FFA300"
-              indicador="em construção"
-              ativo={false}
+              indicador="visão consolidada"
+              ativo
             />
           </div>
 

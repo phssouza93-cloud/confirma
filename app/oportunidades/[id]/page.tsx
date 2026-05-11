@@ -9,6 +9,7 @@ import {
 } from "@/lib/prazo";
 import { indexarAliases, type Alias } from "@/lib/match";
 import { formatarDerivacao } from "@/lib/derivacao";
+import { BotaoFirmar } from "./BotaoFirmar";
 
 export const dynamic = "force-dynamic";
 
@@ -452,6 +453,8 @@ export default async function DetalheOportunidade({ params }: Props) {
                   Cálculo oficial · {new Date().toLocaleDateString("pt-BR")}
                 </div>
               </div>
+
+              <BotaoFirmar opp_id={opp.id} fase={opp.fase} />
 
               <div className="bg-[#E6F9FC] border border-[#64C3D1]/40 rounded-2xl p-4 text-sm">
                 <div className="font-bold text-[#1F2C4E] mb-1 uppercase tracking-wide text-xs">
