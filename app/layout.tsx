@@ -1,15 +1,23 @@
 import type { Metadata } from "next";
-import { Geist } from "next/font/google";
+import { Montserrat, Raleway } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const montserrat = Montserrat({
+  variable: "--font-montserrat",
   subsets: ["latin"],
+  weight: ["400", "600", "700", "900"],
+});
+
+const raleway = Raleway({
+  variable: "--font-raleway",
+  subsets: ["latin"],
+  weight: ["400", "600", "700"],
 });
 
 export const metadata: Metadata = {
   title: "Confirma · Confiance Medical",
-  description: "Promessa de prazo em tempo real para o time comercial",
+  description:
+    "Promessa de prazo em tempo real para o time comercial — Confiance Medical",
 };
 
 export default function RootLayout({
@@ -20,9 +28,9 @@ export default function RootLayout({
   return (
     <html
       lang="pt-BR"
-      className={`${geistSans.variable} h-full antialiased`}
+      className={`${montserrat.variable} ${raleway.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-slate-50 text-slate-900">
+      <body className="min-h-full flex flex-col bg-white text-[#1F2C4E]">
         {children}
       </body>
     </html>

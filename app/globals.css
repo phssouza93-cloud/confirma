@@ -1,26 +1,45 @@
 @import "tailwindcss";
 
 :root {
+  /* Cores oficiais — Manual da Marca Confiance Medical */
+  --brand-navy: #1F2C4E;
+  --brand-blue: #326A84;
+  --brand-cyan: #64C3D1;
+  --brand-orange: #FFA300;
+  --brand-gray: #706F6F;
+  --brand-turquoise: #1E9DBA;
+  --brand-cyan-light: #E6F9FC;
+  --brand-soft: #F2F2F2;
+
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #1F2C4E;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-brand-navy: var(--brand-navy);
+  --color-brand-blue: var(--brand-blue);
+  --color-brand-cyan: var(--brand-cyan);
+  --color-brand-orange: var(--brand-orange);
+  --color-brand-gray: var(--brand-gray);
+  --color-brand-turquoise: var(--brand-turquoise);
+  --color-brand-cyan-light: var(--brand-cyan-light);
+  --color-brand-soft: var(--brand-soft);
+  --font-sans: var(--font-raleway);
+  --font-heading: var(--font-montserrat);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-raleway), system-ui, -apple-system, sans-serif;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-montserrat), var(--font-raleway), system-ui, sans-serif;
+}
+
+.brand-gradient {
+  background: linear-gradient(135deg, #64C3D1 0%, #326A84 50%, #1F2C4E 100%);
 }
