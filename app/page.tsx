@@ -25,7 +25,7 @@ export default async function Home() {
   const perfilExibicao = perfil?.perfil || "consultor";
   const iniciais = nomeExibicao
     .split(" ")
-    .map((p) => p[0])
+    .map((p: string) => p.charAt(0))
     .slice(0, 2)
     .join("")
     .toUpperCase();
@@ -84,19 +84,16 @@ export default async function Home() {
             <CardArea
               titulo="Oportunidades"
               descricao="Pipeline em negociação e cálculo de prazo"
-              icone="briefcase"
               cor="#326A84"
             />
             <CardArea
               titulo="Estoque & Produção"
               descricao="Cadastro mestre, WIP e carteira de pedidos"
-              icone="package"
               cor="#1E9DBA"
             />
             <CardArea
               titulo="Dashboard"
               descricao="KPIs de pipeline, gargalos e capacidade"
-              icone="chart"
               cor="#64C3D1"
             />
           </div>
@@ -146,7 +143,6 @@ function CardArea({
 }: {
   titulo: string;
   descricao: string;
-  icone: string;
   cor: string;
 }) {
   return (
