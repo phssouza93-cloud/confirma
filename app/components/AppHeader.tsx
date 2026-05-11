@@ -12,7 +12,7 @@ const NAV = [
   { href: "/", label: "Início" },
   { href: "/estoque", label: "Estoque" },
   { href: "/wip", label: "Em andamento" },
-  { href: "/carteira", label: "Carteira", disabled: true },
+  { href: "/carteira", label: "Carteira" },
   { href: "/oportunidades", label: "Oportunidades", disabled: true },
 ];
 

@@ -75,8 +75,8 @@ export default async function Home() {
               titulo="Carteira de pedidos"
               descricao="Pedidos em produção/liberação"
               cor="#1E9DBA"
-              indicador={`${qtdCarteira ?? 0} pedidos`}
-              ativo={false}
+              indicador={`${qtdCarteira ?? 0} linhas`}
+              ativo
             />
             <CardArea
               href="/oportunidades"
