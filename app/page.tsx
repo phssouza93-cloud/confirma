@@ -21,16 +21,19 @@ export default async function Home() {
   const perfilExibicao = perfil?.perfil || "consultor";
 
   // Contadores em tempo real do banco
-  const [{ count: qtdSkus }, { count: qtdOpp }, { count: qtdCarteira }] =
-    await Promise.all([
-      supabase.from("skus").select("*", { count: "exact", head: true }),
-      supabase
-        .from("oportunidades")
-        .select("*", { count: "exact", head: true }),
-      supabase
-        .from("carteira_pedidos")
-        .select("*", { count: "exact", head: true }),
-    ]);
+  const [
+    { count: qtdSkus },
+    { count: qtdOpp },
+    { count: qtdCarteira },
+    { count: qtdWip },
+  ] = await Promise.all([
+    supabase.from("skus").select("*", { count: "exact", head: true }),
+    supabase.from("oportunidades").select("*", { count: "exact", head: true }),
+    supabase
+      .from("carteira_pedidos")
+      .select("*", { count: "exact", head: true }),
+    supabase.from("wip").select("*", { count: "exact", head: true }),
+  ]);
 
   return (
     <>
@@ -64,8 +67,8 @@ export default async function Home() {
               titulo="Em andamento"
               descricao="OPs do ERP com data prevista"
               cor="#326A84"
-              indicador="em construção"
-              ativo={false}
+              indicador={`${qtdWip ?? 0} OPs`}
+              ativo
             />
             <CardArea
               href="/carteira"
