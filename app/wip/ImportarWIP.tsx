@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import * as XLSX from "xlsx";
 import { importarWIP, type OPInput } from "./actions";
+import { formatarDerivacao } from "@/lib/derivacao";
 
 type Etapa = "fechado" | "upload" | "processando" | "preview";
 
@@ -86,12 +87,9 @@ export function ImportarWIP({ wipAtual }: Props) {
           ops.push({
             op_numero: String(op).trim(),
             sku_codigo: String(sku).trim(),
-            derivacao:
-              r["Derivação"] !== null && r["Derivação"] !== undefined
-                ? String(r["Derivação"]).trim()
-                : (r["Derivacao"] !== null && r["Derivacao"] !== undefined
-                  ? String(r["Derivacao"]).trim()
-                  : null),
+            derivacao: formatarDerivacao(
+              r["Derivação"] ?? r["Derivacao"] ?? null
+            ),
             qtd_prevista: Number(
               r["Qtde Prevista"] ?? r["Quantidade"] ?? r["Qtd"] ?? 1
             ) || 1,

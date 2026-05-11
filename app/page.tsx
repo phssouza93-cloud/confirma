@@ -84,7 +84,7 @@ export default async function Home() {
               descricao="Pipeline + cálculo de prazo"
               cor="#64C3D1"
               indicador={`${qtdOpp ?? 0} no pipeline`}
-              ativo={false}
+              ativo
             />
             <CardArea
               href="/dashboard"

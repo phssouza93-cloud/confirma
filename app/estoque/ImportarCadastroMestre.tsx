@@ -2,32 +2,27 @@
 
 import { useState, useTransition } from "react";
 import * as XLSX from "xlsx";
-import { importarPosicaoEstoque, type DerivacaoInput } from "./actions";
-import { formatarDerivacao } from "@/lib/derivacao";
+import { importarCadastroMestre, type SKUCadastroInput } from "./actions";
 
 type Etapa = "fechado" | "upload" | "processando" | "preview";
 
-type Props = {
-  qtdAtual: number;
-};
-
-export function ImportarEstoque({ qtdAtual }: Props) {
+export function ImportarCadastroMestre({ qtdAtual }: { qtdAtual: number }) {
   const [etapa, setEtapa] = useState<Etapa>("fechado");
   const [fileName, setFileName] = useState<string>("");
-  const [linhas, setLinhas] = useState<DerivacaoInput[]>([]);
+  const [skus, setSkus] = useState<SKUCadastroInput[]>([]);
   const [erro, setErro] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   function abrir() {
     setEtapa("upload");
     setErro(null);
-    setLinhas([]);
+    setSkus([]);
     setFileName("");
   }
   function fechar() {
     setEtapa("fechado");
     setErro(null);
-    setLinhas([]);
+    setSkus([]);
     setFileName("");
   }
 
@@ -39,39 +34,37 @@ export function ImportarEstoque({ qtdAtual }: Props) {
       try {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
         const wb = XLSX.read(data, { type: "array" });
-        const sheet = wb.Sheets[wb.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
-          defval: null,
-        });
-        const lista: DerivacaoInput[] = [];
-        rows.forEach((r) => {
-          const codigo = (r["Produto"] ??
-            r["Codigo"] ??
-            r["Código"] ??
-            r["SKU"]) as string | null;
-          if (!codigo) return;
-          const codigoStr = String(codigo).trim();
-          const derRaw = r["Derivação"] ?? r["Derivacao"] ?? null;
-          const derivacao = formatarDerivacao(derRaw);
-          const qtd = Number(
-            r["Disponível"] ?? r["Disponivel"] ?? r["Quantidade"] ?? 0
-          );
-          const deposito = (r["Depósito"] ?? r["Deposito"] ?? "EP") as string;
-          lista.push({
-            codigo: codigoStr,
-            derivacao,
-            qtd_disponivel: isNaN(qtd) ? 0 : qtd,
-            deposito: String(deposito).trim(),
+        // Lê TODAS as abas e concatena
+        const lista: SKUCadastroInput[] = [];
+        wb.SheetNames.forEach((nome) => {
+          const sheet = wb.Sheets[nome];
+          const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
+            defval: null,
+          });
+          rows.forEach((r) => {
+            const codigo = (r["Produto"] ?? r["Código"] ?? r["Codigo"] ?? r["SKU"]) as
+              | string
+              | null;
+            const descricao = (r["Descrição"] ?? r["Descricao"]) as string | null;
+            if (!codigo || !descricao) return;
+            const codigoStr = String(codigo).trim();
+            const fam = codigoStr.substring(0, 3);
+            lista.push({
+              codigo: codigoStr,
+              descricao: String(descricao).trim(),
+              familia: fam,
+              lead_time_dias: 20,
+            });
           });
         });
         if (lista.length === 0) {
           setErro(
-            "Não consegui identificar linhas. Colunas esperadas: Produto, Derivação, Disponível."
+            "Não consegui identificar SKUs. Colunas esperadas: Produto, Descrição."
           );
           setEtapa("upload");
           return;
         }
-        setLinhas(lista);
+        setSkus(lista);
         setEtapa("preview");
       } catch (err) {
         setErro(
@@ -86,7 +79,7 @@ export function ImportarEstoque({ qtdAtual }: Props) {
 
   function confirmar() {
     startTransition(async () => {
-      const res = await importarPosicaoEstoque(linhas);
+      const res = await importarCadastroMestre(skus);
       if (!res.ok) {
         setErro(res.error || "Erro desconhecido");
         return;
@@ -99,27 +92,32 @@ export function ImportarEstoque({ qtdAtual }: Props) {
     return (
       <button
         onClick={abrir}
-        className="px-3 py-2 text-sm bg-[#1F2C4E] hover:bg-[#326A84] text-white rounded-lg font-medium uppercase tracking-wide text-xs transition"
+        className="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white hover:bg-slate-50 text-[#1F2C4E] font-medium uppercase tracking-wide text-xs transition"
       >
-        Importar estoque
+        Cadastro mestre
       </button>
     );
   }
 
-  // estatísticas do preview
-  const skusDistintos = new Set(linhas.map((l) => l.codigo)).size;
-  const totalUnidades = linhas.reduce((s, l) => s + l.qtd_disponivel, 0);
-  const derivDistintas = new Set(
-    linhas.map((l) => l.codigo + "|" + (l.derivacao || ""))
-  ).size;
+  // famílias para o preview
+  const familias: Record<string, number> = {};
+  const contadorCodigo: Record<string, number> = {};
+  skus.forEach((s) => {
+    const f = s.familia || "—";
+    familias[f] = (familias[f] || 0) + 1;
+    contadorCodigo[s.codigo] = (contadorCodigo[s.codigo] || 0) + 1;
+  });
+  const duplicados = Object.entries(contadorCodigo).filter(([, n]) => n > 1);
+  const totalDuplicatas = duplicados.reduce((s, [, n]) => s + (n - 1), 0);
+  const codigosUnicos = Object.keys(contadorCodigo).length;
 
   return (
     <>
       <button
         onClick={abrir}
-        className="px-3 py-2 text-sm bg-[#1F2C4E] hover:bg-[#326A84] text-white rounded-lg font-medium uppercase tracking-wide text-xs transition"
+        className="px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white hover:bg-slate-50 text-[#1F2C4E] font-medium uppercase tracking-wide text-xs transition"
       >
-        Importar estoque
+        Cadastro mestre
       </button>
       <div
         className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
@@ -133,11 +131,10 @@ export function ImportarEstoque({ qtdAtual }: Props) {
               <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
                 <div>
                   <h2 className="text-lg font-bold text-[#1F2C4E] uppercase tracking-wide">
-                    Importar posição de estoque
+                    Importar cadastro mestre
                   </h2>
                   <p className="text-xs text-[#706F6F] mt-0.5">
-                    Substitui a posição atual pelo conteúdo da planilha.
-                    Derivações são padronizadas para 3 dígitos.
+                    Define a descrição oficial de cada SKU. Não mexe no estoque.
                   </p>
                 </div>
                 <button
@@ -150,8 +147,9 @@ export function ImportarEstoque({ qtdAtual }: Props) {
               <div className="p-6 overflow-y-auto">
                 {qtdAtual > 0 && (
                   <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-xs text-amber-900">
-                    Já existe posição de estoque. A importação{" "}
-                    <b>substitui</b> a foto atual pela nova.
+                    Já há <b>{qtdAtual} SKUs</b> cadastrados. A importação{" "}
+                    <b>atualiza</b> descrições e <b>adiciona</b> SKUs novos —
+                    não apaga.
                   </div>
                 )}
                 <label className="block border-2 border-dashed border-slate-300 hover:border-[#326A84] hover:bg-[#E6F9FC]/30 rounded-lg p-10 text-center cursor-pointer transition">
@@ -166,10 +164,10 @@ export function ImportarEstoque({ qtdAtual }: Props) {
                   />
                   <div className="text-4xl text-slate-400 mb-2">↑</div>
                   <div className="font-medium text-[#1F2C4E]">
-                    Arraste a planilha do Estoque
+                    Arraste a planilha do cadastro
                   </div>
                   <div className="text-xs text-[#706F6F] mt-1">
-                    Colunas esperadas: Produto, Derivação, Disponível, Depósito
+                    Colunas esperadas: Produto, Descrição · lê todas as abas
                   </div>
                 </label>
                 {erro && (
@@ -214,52 +212,68 @@ export function ImportarEstoque({ qtdAtual }: Props) {
                 </button>
               </div>
               <div className="p-6 overflow-y-auto flex-1">
-                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-4 text-sm text-emerald-900">
-                  <b>{skusDistintos}</b> SKUs · <b>{derivDistintas}</b>{" "}
-                  derivações · <b>{totalUnidades}</b> unidades
+                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 mb-3 text-sm text-emerald-900">
+                  <b>{skus.length}</b> linhas lidas · <b>{codigosUnicos}</b> SKUs únicos
+                  em <b>{Object.keys(familias).length}</b> famílias
                 </div>
-                <div className="bg-white border border-slate-200 rounded-lg overflow-hidden max-h-80 overflow-y-auto">
+                {totalDuplicatas > 0 && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-sm text-amber-900">
+                    <b>⚠ {totalDuplicatas} linha{totalDuplicatas > 1 ? "s" : ""} duplicada{totalDuplicatas > 1 ? "s" : ""}</b> na planilha
+                    (código repetido). Vamos manter apenas a última ocorrência
+                    de cada código. Códigos repetidos:{" "}
+                    {duplicados
+                      .slice(0, 8)
+                      .map(([c, n]) => `${c} (×${n})`)
+                      .join(", ")}
+                    {duplicados.length > 8 ? ` e mais ${duplicados.length - 8}…` : ""}
+                  </div>
+                )}
+                <div className="grid grid-cols-4 gap-2 mb-4">
+                  {Object.entries(familias)
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 12)
+                    .map(([f, q]) => (
+                      <div
+                        key={f}
+                        className="bg-slate-50 border border-slate-200 rounded p-2 text-xs"
+                      >
+                        <div className="font-mono text-[#1F2C4E] font-bold">
+                          {f}
+                        </div>
+                        <div className="text-[#706F6F]">{q} SKUs</div>
+                      </div>
+                    ))}
+                </div>
+                <div className="bg-white border border-slate-200 rounded-lg overflow-hidden max-h-72 overflow-y-auto">
                   <table className="w-full text-sm">
                     <thead className="bg-slate-50 text-xs uppercase text-[#706F6F] sticky top-0">
                       <tr>
                         <th className="text-left py-2 px-3 font-semibold">
-                          Produto
-                        </th>
-                        <th className="text-center py-2 px-3 font-semibold">
-                          Derivação
+                          Código
                         </th>
                         <th className="text-left py-2 px-3 font-semibold">
-                          Depósito
+                          Descrição
                         </th>
-                        <th className="text-right py-2 px-3 font-semibold">
-                          Qtd
+                        <th className="text-left py-2 px-3 font-semibold">
+                          Família
                         </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {linhas.slice(0, 80).map((l, i) => (
-                        <tr key={i}>
+                      {skus.slice(0, 50).map((s) => (
+                        <tr key={s.codigo}>
                           <td className="py-1 px-3 font-mono text-xs">
-                            {l.codigo}
+                            {s.codigo}
                           </td>
-                          <td className="py-1 px-3 text-center">
-                            <span className="font-mono text-xs px-1.5 py-0.5 bg-slate-100 rounded">
-                              {l.derivacao || "—"}
-                            </span>
-                          </td>
-                          <td className="py-1 px-3 text-xs text-[#706F6F]">
-                            {l.deposito}
-                          </td>
-                          <td className="py-1 px-3 text-right text-sm font-medium">
-                            {l.qtd_disponivel}
-                          </td>
+                          <td className="py-1 px-3 text-sm">{s.descricao}</td>
+                          <td className="py-1 px-3 text-xs">{s.familia}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                  {linhas.length > 80 && (
+                  {skus.length > 50 && (
                     <div className="px-3 py-2 text-xs text-[#706F6F] bg-slate-50">
-                      mostrando 80 de {linhas.length}
+                      mostrando 50 de {skus.length}
                     </div>
                   )}
                 </div>
@@ -290,7 +304,7 @@ export function ImportarEstoque({ qtdAtual }: Props) {
                   >
                     {pending
                       ? "Salvando..."
-                      : `Aplicar ${linhas.length} linhas`}
+                      : `Importar ${codigosUnicos} SKUs`}
                   </button>
                 </div>
               </div>

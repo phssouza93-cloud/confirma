@@ -13,7 +13,7 @@ const NAV = [
   { href: "/estoque", label: "Estoque" },
   { href: "/wip", label: "Em andamento" },
   { href: "/carteira", label: "Carteira" },
-  { href: "/oportunidades", label: "Oportunidades", disabled: true },
+  { href: "/oportunidades", label: "Oportunidades" },
 ];
 
 export function AppHeader({ nome, perfil, rotaAtiva }: Props) {

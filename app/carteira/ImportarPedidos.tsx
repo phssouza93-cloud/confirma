@@ -2,6 +2,7 @@
 
 import { Fragment, useState, useTransition } from "react";
 import { importarPedidos, type PedidoInput } from "./actions";
+import { formatarDerivacao } from "@/lib/derivacao";
 
 type Etapa = "fechado" | "upload" | "processando" | "preview";
 
@@ -23,18 +24,18 @@ const TEMPLATES: Omit<PedidoInput, "numero_pedido">[] = [
     cliente: "HOSPITAL SIRIO LIBANES",
     data_promessa: "2026-06-20",
     itens: [
-      { sku_codigo: "MNT0017", derivacao: "15", quantidade: 2, descricao_original: "Monitor Profissional Grau Médico - CM-CINEMED32F" },
-      { sku_codigo: "CAM0003", derivacao: "10", quantidade: 1, descricao_original: "Microcâmera CM-SCAM3" },
-      { sku_codigo: "FNT0001", derivacao: "1", quantidade: 2, descricao_original: "Fonte de Luz Led - CM-LED" },
+      { sku_codigo: "MNT0017", derivacao: "015", quantidade: 2, descricao_original: "Monitor Profissional Grau Médico - CM-CINEMED32F" },
+      { sku_codigo: "CAM0003", derivacao: "010", quantidade: 1, descricao_original: "Microcâmera CM-SCAM3" },
+      { sku_codigo: "FNT0001", derivacao: "001", quantidade: 2, descricao_original: "Fonte de Luz Led - CM-LED" },
     ],
   },
   {
     cliente: "HOSPITAL ALBERT EINSTEIN",
     data_promessa: "2026-06-27",
     itens: [
-      { sku_codigo: "INS0002", derivacao: "4", quantidade: 1, descricao_original: "Insuflador CO2 CM-40L" },
-      { sku_codigo: "LAP0017", derivacao: "1", quantidade: 1, descricao_original: "Endoscópio CM-OTC0051L Laparoscópio" },
-      { sku_codigo: "HIS0008", derivacao: "1", quantidade: 1, descricao_original: "Endoscópio CM-OTC0033H Histeroscópio" },
+      { sku_codigo: "INS0002", derivacao: "004", quantidade: 1, descricao_original: "Insuflador CO2 CM-40L" },
+      { sku_codigo: "LAP0017", derivacao: "001", quantidade: 1, descricao_original: "Endoscópio CM-OTC0051L Laparoscópio" },
+      { sku_codigo: "HIS0008", derivacao: "001", quantidade: 1, descricao_original: "Endoscópio CM-OTC0033H Histeroscópio" },
     ],
   },
 ];
