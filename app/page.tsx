@@ -1,24 +1,17 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { ensureAcesso } from "@/lib/auth";
 import { AppHeader } from "./components/AppHeader";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
+  const ctx = await ensureAcesso("/");
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
+  const perfil = { nome: ctx.nome, perfil: ctx.perfil };
 
-  const { data: perfil } = await supabase
-    .from("usuarios")
-    .select("nome, perfil")
-    .eq("id", user.id)
-    .single();
-
-  const nomeExibicao = perfil?.nome || user.email?.split("@")[0] || "Usuário";
-  const perfilExibicao = perfil?.perfil || "consultor";
+  const nomeExibicao = ctx.nome;
+  const perfilExibicao = ctx.perfil;
 
   // Contadores em tempo real do banco
   const [

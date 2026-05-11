@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { ensureAcesso } from "@/lib/auth";
 import { AppHeader } from "../components/AppHeader";
 import { ImportarEstoque } from "./ImportarEstoque";
 import { ImportarCadastroMestre } from "./ImportarCadastroMestre";
@@ -22,17 +23,9 @@ type Derivacao = {
 };
 
 export default async function EstoquePage() {
+  const ctx = await ensureAcesso("/estoque");
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const { data: perfil } = await supabase
-    .from("usuarios")
-    .select("nome, perfil")
-    .eq("id", user.id)
-    .single();
+  const perfil = { nome: ctx.nome, perfil: ctx.perfil };
 
   const { data: skus } = await supabase
     .from("skus")
@@ -62,8 +55,8 @@ export default async function EstoquePage() {
   return (
     <>
       <AppHeader
-        nome={perfil?.nome || user.email?.split("@")[0] || "Usuário"}
-        perfil={perfil?.perfil || "consultor"}
+        nome={ctx.nome}
+        perfil={ctx.perfil}
         rotaAtiva="/estoque"
       />
       <main className="flex-1 px-6 py-10">

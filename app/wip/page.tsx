@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { ensureAcesso } from "@/lib/auth";
 import { AppHeader } from "../components/AppHeader";
 import { ImportarWIP } from "./ImportarWIP";
 import { ListaWIP } from "./ListaWIP";
@@ -16,17 +17,9 @@ type OP = {
 };
 
 export default async function WIPPage() {
+  const ctx = await ensureAcesso("/wip");
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const { data: perfil } = await supabase
-    .from("usuarios")
-    .select("nome, perfil")
-    .eq("id", user.id)
-    .single();
+  const perfil = { nome: ctx.nome, perfil: ctx.perfil };
 
   const { data: wip } = await supabase
     .from("wip")
@@ -60,8 +53,8 @@ export default async function WIPPage() {
   return (
     <>
       <AppHeader
-        nome={perfil?.nome || user.email?.split("@")[0] || "Usuário"}
-        perfil={perfil?.perfil || "consultor"}
+        nome={ctx.nome}
+        perfil={ctx.perfil}
         rotaAtiva="/wip"
       />
       <main className="flex-1 px-6 py-10">

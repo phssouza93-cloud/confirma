@@ -13,7 +13,10 @@ export async function loginAction(formData: FormData) {
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({ email, password: senha });
+  const { error } = await supabase.auth.signInWithPassword({
+    email,
+    password: senha,
+  });
 
   if (error) {
     return redirect("/login?erro=" + encodeURIComponent(error.message));
@@ -23,46 +26,15 @@ export async function loginAction(formData: FormData) {
   redirect("/");
 }
 
-export async function cadastroAction(formData: FormData) {
-  const nome = String(formData.get("nome") || "").trim();
-  const email = String(formData.get("email") || "").trim().toLowerCase();
-  const senha = String(formData.get("senha") || "");
-  const confirma = String(formData.get("confirma") || "");
-
-  if (!nome || !email || !senha) {
-    return redirect("/cadastro?erro=" + encodeURIComponent("Preencha todos os campos"));
-  }
-  if (senha !== confirma) {
-    return redirect("/cadastro?erro=" + encodeURIComponent("As senhas não coincidem"));
-  }
-  if (senha.length < 12) {
-    return redirect("/cadastro?erro=" + encodeURIComponent("Senha deve ter no mínimo 12 caracteres"));
-  }
-  const requisitos = [
-    [/[A-Z]/, "Senha precisa de letra maiúscula"],
-    [/[a-z]/, "Senha precisa de letra minúscula"],
-    [/[0-9]/, "Senha precisa de número"],
-    [/[^A-Za-z0-9]/, "Senha precisa de caractere especial"],
-  ] as const;
-  for (const [regex, msg] of requisitos) {
-    if (!regex.test(senha)) {
-      return redirect("/cadastro?erro=" + encodeURIComponent(msg));
-    }
-  }
-
-  const supabase = await createClient();
-  const { error } = await supabase.auth.signUp({
-    email,
-    password: senha,
-    options: { data: { nome } },
-  });
-
-  if (error) {
-    return redirect("/cadastro?erro=" + encodeURIComponent(error.message));
-  }
-
-  revalidatePath("/", "layout");
-  redirect("/");
+/**
+ * Cadastro público desabilitado.
+ * Acesso ao Confirma só por convite criado pelo admin em /configuracoes/usuarios.
+ */
+export async function cadastroAction(_formData: FormData) {
+  return redirect(
+    "/login?erro=" +
+      encodeURIComponent("Cadastro fechado. Peça um convite ao administrador.")
+  );
 }
 
 export async function logoutAction() {

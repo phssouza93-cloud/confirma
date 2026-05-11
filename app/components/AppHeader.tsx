@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { LogoConfiance } from "./LogoConfiance";
 import { logoutAction } from "../login/actions";
+import { temAcesso, PERFIL_LABEL, ehPerfilValido } from "@/lib/permissoes";
+import { GearMenu } from "./GearMenu";
 
 type Props = {
   nome: string;
@@ -8,12 +10,7 @@ type Props = {
   rotaAtiva?: string;
 };
 
-type NavItem = {
-  href: string;
-  label: string;
-  disabled?: boolean;
-  adminOnly?: boolean;
-};
+type NavItem = { href: string; label: string };
 
 const NAV: NavItem[] = [
   { href: "/", label: "Início" },
@@ -23,7 +20,6 @@ const NAV: NavItem[] = [
   { href: "/disponivel", label: "Disponível" },
   { href: "/oportunidades", label: "Oportunidades" },
   { href: "/dashboard", label: "Dashboard" },
-  { href: "/admin", label: "Admin", adminOnly: true },
 ];
 
 export function AppHeader({ nome, perfil, rotaAtiva }: Props) {
@@ -34,6 +30,10 @@ export function AppHeader({ nome, perfil, rotaAtiva }: Props) {
     .join("")
     .toUpperCase();
   const isAdmin = perfil === "admin";
+  const perfilLabel = ehPerfilValido(perfil) ? PERFIL_LABEL[perfil] : perfil;
+
+  // Filtra a navegação principal pelas permissões do perfil
+  const navVisivel = NAV.filter((item) => temAcesso(perfil, item.href));
 
   return (
     <header className="bg-white border-b border-slate-100">
@@ -43,19 +43,8 @@ export function AppHeader({ nome, perfil, rotaAtiva }: Props) {
             <LogoConfiance className="h-9 w-auto" />
           </Link>
           <nav className="hidden md:flex items-center gap-1">
-            {NAV.filter((item) => !item.adminOnly || isAdmin).map((item) => {
+            {navVisivel.map((item) => {
               const ativo = rotaAtiva === item.href;
-              if (item.disabled) {
-                return (
-                  <span
-                    key={item.href}
-                    className="px-3 py-1.5 text-xs uppercase tracking-wider text-slate-300 cursor-not-allowed"
-                    title="Em construção"
-                  >
-                    {item.label}
-                  </span>
-                );
-              }
               return (
                 <Link
                   key={item.href}
@@ -73,11 +62,12 @@ export function AppHeader({ nome, perfil, rotaAtiva }: Props) {
             })}
           </nav>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          {isAdmin && <GearMenu rotaAtiva={rotaAtiva} />}
           <div className="text-right hidden sm:block">
             <div className="text-xs font-semibold text-[#1F2C4E]">{nome}</div>
             <div className="text-xs uppercase tracking-wider text-[#706F6F]">
-              {perfil}
+              {perfilLabel}
             </div>
           </div>
           <span className="w-9 h-9 rounded-full bg-[#E6F9FC] text-[#1E9DBA] flex items-center justify-center font-bold text-sm">

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { ensureAcesso } from "@/lib/auth";
 import { AppHeader } from "@/app/components/AppHeader";
 import {
   calcularOportunidade,
@@ -59,17 +60,9 @@ function fasePill(fase: string) {
 
 export default async function DetalheOportunidade({ params }: Props) {
   const { id } = await params;
+  const ctx = await ensureAcesso("/oportunidades");
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const { data: perfil } = await supabase
-    .from("usuarios")
-    .select("nome, perfil")
-    .eq("id", user.id)
-    .single();
+  const perfil = { nome: ctx.nome, perfil: ctx.perfil };
 
   // Busca oportunidade + itens
   const { data: opp } = await supabase
@@ -182,8 +175,8 @@ export default async function DetalheOportunidade({ params }: Props) {
   return (
     <>
       <AppHeader
-        nome={perfil?.nome || user.email?.split("@")[0] || "Usuário"}
-        perfil={perfil?.perfil || "consultor"}
+        nome={ctx.nome}
+        perfil={ctx.perfil}
         rotaAtiva="/oportunidades"
       />
       <main className="flex-1 px-6 py-8">

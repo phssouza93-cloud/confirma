@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { ensureAcesso } from "@/lib/auth";
 import { AppHeader } from "../components/AppHeader";
 import {
   calcularOportunidade,
@@ -47,17 +48,9 @@ function fmtMoney(v: number) {
 }
 
 export default async function DashboardPage() {
+  const ctx = await ensureAcesso("/dashboard");
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const { data: perfil } = await supabase
-    .from("usuarios")
-    .select("nome, perfil")
-    .eq("id", user.id)
-    .single();
+  const perfil = { nome: ctx.nome, perfil: ctx.perfil };
 
   // ---- carregar tudo necessário pra montar o painel ----
   const [
@@ -283,8 +276,8 @@ export default async function DashboardPage() {
   return (
     <>
       <AppHeader
-        nome={perfil?.nome || user.email?.split("@")[0] || "Usuário"}
-        perfil={perfil?.perfil || "consultor"}
+        nome={ctx.nome}
+        perfil={ctx.perfil}
         rotaAtiva="/dashboard"
       />
       <main className="flex-1 px-6 py-10">

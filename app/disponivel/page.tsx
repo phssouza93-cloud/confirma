@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { ensureAcesso } from "@/lib/auth";
 import { AppHeader } from "../components/AppHeader";
 import { formatarDerivacao } from "@/lib/derivacao";
 import { DisponivelClient, type LinhaDisp } from "./DisponivelClient";
@@ -35,17 +36,9 @@ type WipLinha = {
 };
 
 export default async function DisponivelPage() {
+  const ctx = await ensureAcesso("/disponivel");
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const { data: perfil } = await supabase
-    .from("usuarios")
-    .select("nome, perfil")
-    .eq("id", user.id)
-    .single();
+  const perfil = { nome: ctx.nome, perfil: ctx.perfil };
 
   const [
     { data: skusData },
@@ -198,8 +191,8 @@ export default async function DisponivelPage() {
   return (
     <>
       <AppHeader
-        nome={perfil?.nome || user.email?.split("@")[0] || "Usuário"}
-        perfil={perfil?.perfil || "consultor"}
+        nome={ctx.nome}
+        perfil={ctx.perfil}
         rotaAtiva="/disponivel"
       />
       <main className="flex-1 px-6 py-10">

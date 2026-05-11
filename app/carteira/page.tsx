@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { ensureAcesso } from "@/lib/auth";
 import { AppHeader } from "../components/AppHeader";
 import { ImportarPedidos } from "./ImportarPedidos";
 import { ListaCarteira } from "./ListaCarteira";
@@ -18,17 +19,9 @@ type Linha = {
 };
 
 export default async function CarteiraPage() {
+  const ctx = await ensureAcesso("/carteira");
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const { data: perfil } = await supabase
-    .from("usuarios")
-    .select("nome, perfil")
-    .eq("id", user.id)
-    .single();
+  const perfil = { nome: ctx.nome, perfil: ctx.perfil };
 
   const { data: linhas } = await supabase
     .from("carteira_pedidos")
@@ -47,8 +40,8 @@ export default async function CarteiraPage() {
   return (
     <>
       <AppHeader
-        nome={perfil?.nome || user.email?.split("@")[0] || "Usuário"}
-        perfil={perfil?.perfil || "consultor"}
+        nome={ctx.nome}
+        perfil={ctx.perfil}
         rotaAtiva="/carteira"
       />
       <main className="flex-1 px-6 py-10">
