@@ -1,177 +1,170 @@
-import Image from "next/image";
 import { createClient } from "@/lib/supabase/server";
+import { logoutAction } from "./login/actions";
+import { LogoConfiance } from "./components/LogoConfiance";
+
+export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  let supabaseStatus: "ok" | "erro" = "erro";
-  let mensagem = "";
-  try {
-    const supabase = await createClient();
-    const { error } = await supabase.auth.getSession();
-    if (error) {
-      mensagem = error.message;
-    } else {
-      supabaseStatus = "ok";
-    }
-  } catch (e) {
-    mensagem = e instanceof Error ? e.message : String(e);
-  }
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  const status = [
-    { ok: true, label: "Next.js rodando" },
-    { ok: true, label: "Tailwind configurado" },
-    {
-      ok: supabaseStatus === "ok",
-      label:
-        supabaseStatus === "ok"
-          ? "Conexão Supabase: ok"
-          : `Supabase: ${mensagem || "erro"}`,
-    },
-    { ok: true, label: "GitHub conectado" },
-    { ok: true, label: "Deploy Netlify ativo" },
-  ];
+  // O middleware já redireciona para /login se não houver usuário,
+  // mas mantemos a checagem por segurança
+  if (!user) return null;
+
+  // Busca o perfil estendido na tabela usuarios
+  const { data: perfil } = await supabase
+    .from("usuarios")
+    .select("nome, perfil")
+    .eq("id", user.id)
+    .single();
+
+  const nomeExibicao = perfil?.nome || user.email?.split("@")[0] || "Usuário";
+  const perfilExibicao = perfil?.perfil || "consultor";
+  const iniciais = nomeExibicao
+    .split(" ")
+    .map((p) => p[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
 
   return (
     <main className="flex-1 flex flex-col">
-      {/* Header com logo */}
+      {/* Header */}
       <header className="bg-white border-b border-slate-100">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-          <Image
-            src="https://confiancemedical.com.br/wp-content/uploads/2025/11/logo-horizontal-completo.png"
-            alt="Confiance Medical"
-            width={220}
-            height={56}
-            priority
-            className="h-10 w-auto"
-          />
-          <div className="text-xs uppercase tracking-widest text-[#706F6F] font-[var(--font-montserrat)]">
-            Promessa de Prazo
+        <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between">
+          <LogoConfiance className="h-10 w-auto" />
+          <div className="flex items-center gap-3">
+            <div className="text-right">
+              <div className="text-xs font-semibold text-[#1F2C4E]">{nomeExibicao}</div>
+              <div className="text-xs uppercase tracking-wider text-[#706F6F]">
+                {perfilExibicao}
+              </div>
+            </div>
+            <span className="w-9 h-9 rounded-full bg-[#E6F9FC] text-[#1E9DBA] flex items-center justify-center font-bold text-sm">
+              {iniciais}
+            </span>
+            <form action={logoutAction}>
+              <button
+                type="submit"
+                className="text-xs uppercase tracking-wider font-semibold text-[#706F6F] hover:text-[#1F2C4E] px-3 py-2 rounded-lg hover:bg-slate-50 transition"
+                title="Sair"
+              >
+                Sair
+              </button>
+            </form>
           </div>
         </div>
       </header>
 
-      {/* Faixa do degradê oficial da marca */}
+      {/* Faixa do degradê da marca */}
       <div className="brand-gradient h-1"></div>
 
-      {/* Hero */}
-      <section className="flex-1 flex items-center justify-center px-6 py-16">
-        <div className="w-full max-w-3xl">
-          <div className="text-center mb-10">
-            <p className="text-xs uppercase tracking-[0.25em] text-[#326A84] font-semibold mb-3">
-              Plataforma interna
+      {/* Conteúdo principal */}
+      <section className="flex-1 px-6 py-12">
+        <div className="max-w-5xl mx-auto">
+          <div className="mb-8">
+            <p className="text-xs uppercase tracking-[0.25em] text-[#326A84] font-semibold mb-2">
+              Bem-vindo, {nomeExibicao.split(" ")[0]}
             </p>
-            <h1 className="text-5xl md:text-6xl font-black tracking-tight text-[#1F2C4E] uppercase leading-tight">
+            <h1 className="text-4xl md:text-5xl font-black tracking-tight text-[#1F2C4E] uppercase leading-tight">
               Confirma
             </h1>
-            <p className="mt-4 text-lg text-[#706F6F] max-w-xl mx-auto">
-              Transforme cada negociação em uma promessa de prazo confiável,
-              lastreada em estoque, carteira e produção em tempo real.
+            <p className="mt-3 text-base text-[#706F6F] max-w-2xl">
+              Plataforma de promessa de prazo da Confiance Medical. As bases de
+              dados do app estão prontas — em breve você verá oportunidades,
+              estoque, WIP e carteira aqui.
             </p>
           </div>
 
-          {/* Cartão de status */}
-          <div className="bg-white border border-[#E6F9FC] rounded-2xl shadow-sm overflow-hidden">
-            <div className="brand-gradient h-1"></div>
-            <div className="p-6 md:p-8">
-              <div className="flex items-center justify-between mb-5">
-                <div>
-                  <h2 className="text-sm uppercase tracking-widest font-bold text-[#1F2C4E]">
-                    Status do setup
-                  </h2>
-                  <p className="text-xs text-[#706F6F] mt-0.5">
-                    Infraestrutura em produção
-                  </p>
-                </div>
-                <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#E6F9FC] text-[#1E9DBA] text-xs font-semibold uppercase tracking-wide">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#1E9DBA]"></span>
-                  v0.0.3
-                </span>
-              </div>
+          {/* Cards de área (placeholders por enquanto) */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <CardArea
+              titulo="Oportunidades"
+              descricao="Pipeline em negociação e cálculo de prazo"
+              icone="briefcase"
+              cor="#326A84"
+            />
+            <CardArea
+              titulo="Estoque & Produção"
+              descricao="Cadastro mestre, WIP e carteira de pedidos"
+              icone="package"
+              cor="#1E9DBA"
+            />
+            <CardArea
+              titulo="Dashboard"
+              descricao="KPIs de pipeline, gargalos e capacidade"
+              icone="chart"
+              cor="#64C3D1"
+            />
+          </div>
 
-              <ul className="space-y-3">
-                {status.map((s, i) => (
-                  <li key={i} className="flex items-center gap-3 text-sm">
-                    {s.ok ? (
-                      <span className="w-6 h-6 rounded-full bg-[#E6F9FC] text-[#1E9DBA] flex items-center justify-center flex-shrink-0">
-                        <svg
-                          width="14"
-                          height="14"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="3"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <polyline points="20 6 9 17 4 12"></polyline>
-                        </svg>
-                      </span>
-                    ) : (
-                      <span className="w-6 h-6 rounded-full bg-red-50 text-red-600 flex items-center justify-center flex-shrink-0">
-                        <svg
-                          width="14"
-                          height="14"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="3"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <line x1="18" y1="6" x2="6" y2="18"></line>
-                          <line x1="6" y1="6" x2="18" y2="18"></line>
-                        </svg>
-                      </span>
-                    )}
-                    <span className={s.ok ? "text-[#1F2C4E]" : "text-red-700"}>
-                      {s.label}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-
-              <div className="mt-6 pt-6 border-t border-slate-100 grid grid-cols-2 md:grid-cols-3 gap-4 text-xs">
-                <div>
-                  <div className="text-[#706F6F] uppercase tracking-wider font-semibold mb-1">
-                    Stack
-                  </div>
-                  <div className="text-[#1F2C4E]">
-                    Next.js · Tailwind · Supabase
-                  </div>
-                </div>
-                <div>
-                  <div className="text-[#706F6F] uppercase tracking-wider font-semibold mb-1">
-                    Hospedagem
-                  </div>
-                  <div className="text-[#1F2C4E]">Netlify</div>
-                </div>
-                <div>
-                  <div className="text-[#706F6F] uppercase tracking-wider font-semibold mb-1">
-                    Próxima entrega
-                  </div>
-                  <div className="text-[#1F2C4E]">
-                    Autenticação + telas do app
-                  </div>
-                </div>
+          <div className="mt-8 bg-[#E6F9FC] border border-[#64C3D1]/40 rounded-2xl p-5">
+            <div className="flex items-start gap-3">
+              <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-white text-[#1E9DBA] flex-shrink-0">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <line x1="12" y1="16" x2="12" y2="12"></line>
+                  <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                </svg>
+              </span>
+              <div>
+                <h3 className="text-sm font-bold text-[#1F2C4E] mb-1 uppercase tracking-wide">
+                  Próximo passo
+                </h3>
+                <p className="text-sm text-[#1F2C4E]/80 leading-relaxed">
+                  Vamos migrar as telas funcionais do protótipo (Consultor, PCP, Gestor)
+                  para esta versão online com dados de verdade. Cada upload de planilha vai
+                  passar a salvar no banco, e o cálculo de prazo será compartilhado entre
+                  todos os usuários da empresa.
+                </p>
               </div>
             </div>
           </div>
-
-          <p className="mt-8 text-center text-xs text-[#706F6F]">
-            #PorUmMundoSemCicatriz
-          </p>
         </div>
       </section>
 
-      {/* Footer */}
       <footer className="border-t border-slate-100 py-5 px-6">
         <div className="max-w-6xl mx-auto flex items-center justify-between text-xs text-[#706F6F]">
           <span>
             © {new Date().getFullYear()} Confiance Medical · Todos os direitos
             reservados
           </span>
-          <span className="hidden sm:inline">Versão protótipo · em desenvolvimento</span>
+          <span className="hidden sm:inline">#PorUmMundoSemCicatriz</span>
         </div>
       </footer>
     </main>
+  );
+}
+
+function CardArea({
+  titulo,
+  descricao,
+  cor,
+}: {
+  titulo: string;
+  descricao: string;
+  icone: string;
+  cor: string;
+}) {
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-5 hover:border-[#64C3D1] hover:shadow-sm transition cursor-pointer">
+      <div
+        className="w-10 h-10 rounded-lg flex items-center justify-center mb-3"
+        style={{ background: `${cor}15`, color: cor }}
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="7" width="18" height="13" rx="2"></rect>
+          <path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+        </svg>
+      </div>
+      <h3 className="text-sm font-bold text-[#1F2C4E] uppercase tracking-wide mb-1">
+        {titulo}
+      </h3>
+      <p className="text-xs text-[#706F6F] leading-relaxed">{descricao}</p>
+      <p className="text-xs text-[#706F6F]/60 mt-3 italic">em construção</p>
+    </div>
   );
 }
