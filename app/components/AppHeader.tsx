@@ -8,7 +8,9 @@ type Props = {
   rotaAtiva?: string;
 };
 
-const NAV = [
+type NavItem = { href: string; label: string; disabled?: boolean };
+
+const NAV: NavItem[] = [
   { href: "/", label: "Início" },
   { href: "/estoque", label: "Estoque" },
   { href: "/wip", label: "Em andamento" },
