@@ -8,7 +8,12 @@ type Props = {
   rotaAtiva?: string;
 };
 
-type NavItem = { href: string; label: string; disabled?: boolean };
+type NavItem = {
+  href: string;
+  label: string;
+  disabled?: boolean;
+  adminOnly?: boolean;
+};
 
 const NAV: NavItem[] = [
   { href: "/", label: "Início" },
@@ -18,6 +23,7 @@ const NAV: NavItem[] = [
   { href: "/disponivel", label: "Disponível" },
   { href: "/oportunidades", label: "Oportunidades" },
   { href: "/dashboard", label: "Dashboard" },
+  { href: "/admin", label: "Admin", adminOnly: true },
 ];
 
 export function AppHeader({ nome, perfil, rotaAtiva }: Props) {
@@ -27,6 +33,7 @@ export function AppHeader({ nome, perfil, rotaAtiva }: Props) {
     .slice(0, 2)
     .join("")
     .toUpperCase();
+  const isAdmin = perfil === "admin";
 
   return (
     <header className="bg-white border-b border-slate-100">
@@ -36,7 +43,7 @@ export function AppHeader({ nome, perfil, rotaAtiva }: Props) {
             <LogoConfiance className="h-9 w-auto" />
           </Link>
           <nav className="hidden md:flex items-center gap-1">
-            {NAV.map((item) => {
+            {NAV.filter((item) => !item.adminOnly || isAdmin).map((item) => {
               const ativo = rotaAtiva === item.href;
               if (item.disabled) {
                 return (
