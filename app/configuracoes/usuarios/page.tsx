@@ -13,7 +13,7 @@ export default async function ConfigUsuariosPage() {
   const [{ data: usuariosData }, { data: convitesData }] = await Promise.all([
     supabase
       .from("usuarios")
-      .select("id, email, nome, perfil, ativo, created_at")
+      .select("id, email, nome, perfil, ativo, lider_id, created_at")
       .order("nome"),
     supabase
       .from("convites")

@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { loginAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -81,11 +80,10 @@ export default async function LoginPage({ searchParams }: Props) {
             </form>
 
             <div className="mt-6 pt-6 border-t border-slate-100 text-center">
-              <p className="text-xs text-[#706F6F]">
-                Ainda não tem conta?{" "}
-                <Link href="/cadastro" className="text-[#326A84] font-semibold hover:underline">
-                  Criar conta
-                </Link>
+              <p className="text-xs text-[#706F6F] leading-relaxed">
+                Acesso restrito · só por convite.
+                <br />
+                Sem conta? Peça um convite ao administrador.
               </p>
             </div>
           </div>

@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { ensureAcesso } from "@/lib/auth";
+import { obterFiltroOwners, normalizaOwner } from "@/lib/owner-filter";
 import { AppHeader } from "../components/AppHeader";
 import {
   calcularOportunidade,
@@ -50,9 +51,7 @@ function fmtMoney(v: number) {
 export default async function DashboardPage() {
   const ctx = await ensureAcesso("/dashboard");
   const supabase = await createClient();
-  const perfil = { nome: ctx.nome, perfil: ctx.perfil };
 
-  // ---- carregar tudo necessário pra montar o painel ----
   const [
     { data: oppsData },
     { data: itensData },
@@ -91,13 +90,30 @@ export default async function DashboardPage() {
       .order("created_at", { ascending: false }),
   ]);
 
-  const opps = (oppsData || []) as Opp[];
+  const todasOpps = (oppsData || []) as Opp[];
   const itens = (itensData || []) as Item[];
   const skus = (skusData || []) as SKUFull[];
   const aliasMap = indexarAliases((aliasesData || []) as Alias[]);
   const pedidosFirmados = (pedidosData || []) as Pedido[];
 
-  // Carteira reservada (sum por sku, ignorando liberados)
+  // Filtragem por owner: gestor vê só seu time, admin vê tudo
+  const filtroOwners = await obterFiltroOwners(
+    ctx.userId,
+    ctx.nome,
+    ctx.perfil
+  );
+  const opps =
+    filtroOwners.tipo === "todos"
+      ? todasOpps
+      : (() => {
+          const nomesPermitidos = new Set(
+            filtroOwners.owners.map(normalizaOwner)
+          );
+          return todasOpps.filter((o: Opp) =>
+            nomesPermitidos.has(normalizaOwner(o.owner))
+          );
+        })();
+
   const carteiraReservada: Record<string, number> = {};
   (carteiraData || []).forEach(
     (l: { sku_codigo: string; quantidade: number; status: string }) => {
@@ -107,7 +123,6 @@ export default async function DashboardPage() {
     }
   );
 
-  // WIP disponível (com data, não atrasada)
   const wipPorSku: Record<string, WIPDisponivel[]> = {};
   const hoje = new Date();
   hoje.setHours(0, 0, 0, 0);
@@ -130,23 +145,19 @@ export default async function DashboardPage() {
     }
   );
 
-  // ---- KPIs principais ----
   const oppsAbertas = opps.filter((o) => o.fase !== "Fechado");
   const oppsFechadas = opps.filter((o) => o.fase === "Fechado");
   const pipelineTotal = oppsAbertas.reduce((s, o) => s + (o.valor || 0), 0);
   const valorFechado = oppsFechadas.reduce((s, o) => s + (o.valor || 0), 0);
   const valorTotalGeral = pipelineTotal + valorFechado;
   const valorPorFase: Record<string, number> = {};
-  const qtdPorFase: Record<string, number> = {};
   opps.forEach((o) => {
     valorPorFase[o.fase] = (valorPorFase[o.fase] || 0) + (o.valor || 0);
-    qtdPorFase[o.fase] = (qtdPorFase[o.fase] || 0) + 1;
   });
   const commit = valorPorFase["Commit"] || 0;
   const melhor = valorPorFase["Melhor Cenário"] || 0;
   const poc = valorPorFase["POC (demonstração)"] || 0;
 
-  // ---- Oportunidades fechadas: agrupar pedidos por opp ----
   type ResumoFechada = {
     opp: Opp;
     numero_pedido: string;
@@ -170,7 +181,6 @@ export default async function DashboardPage() {
         (s, p) => s + (Number(p.quantidade) || 0),
         0
       );
-      // data mais recente de criação = quando foi firmada
       const data_firmada = pedidos
         .map((p) => p.created_at)
         .sort()
@@ -199,7 +209,6 @@ export default async function DashboardPage() {
     valorPorOwner[r] = (valorPorOwner[r] || 0) + (o.valor || 0);
   });
 
-  // ---- Análise de gargalos: roda o motor de prazo em cada oportunidade ----
   const itensPorOpp: Record<string, Item[]> = {};
   itens.forEach((it) => {
     if (!itensPorOpp[it.oportunidade_id]) itensPorOpp[it.oportunidade_id] = [];
@@ -246,7 +255,6 @@ export default async function DashboardPage() {
     .sort((a, b) => b.qtd - a.qtd)
     .slice(0, 8);
 
-  // ---- Alertas operacionais ----
   const skusSemLeadTime = skus.filter(
     (s) => !s.eh_servico && s.lead_time_dias == null
   ).length;
@@ -260,10 +268,8 @@ export default async function DashboardPage() {
     }
   ).length;
   const orfaos = itens.filter((it) => {
-    // item órfão se não casa por código nem alias
     if (skus.find((s) => s.codigo === it.sku_codigo)) return false;
     if (aliasMap.size === 0) return true;
-    // verifica se há alias para a descrição
     const desc = String(it.descricao || "")
       .toLowerCase()
       .normalize("NFD")
@@ -295,7 +301,6 @@ export default async function DashboardPage() {
             </p>
           </div>
 
-          {/* KPIs */}
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             <KpiCard
               titulo="Pipeline aberto"
@@ -343,7 +348,6 @@ export default async function DashboardPage() {
             />
           </div>
 
-          {/* Distribuição por fase e região */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <DistGrafico
               titulo="Pipeline por fase"
@@ -363,7 +367,6 @@ export default async function DashboardPage() {
             />
           </div>
 
-          {/* Owner */}
           <DistGrafico
             titulo="Pipeline aberto por owner"
             dados={Object.entries(valorPorOwner)
@@ -374,7 +377,6 @@ export default async function DashboardPage() {
             cor="#64C3D1"
           />
 
-          {/* Gargalos */}
           <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
             <div className="px-5 py-3 border-b border-slate-100">
               <h2 className="text-sm uppercase tracking-widest font-bold text-[#1F2C4E]">
@@ -419,7 +421,6 @@ export default async function DashboardPage() {
             )}
           </div>
 
-          {/* Oportunidades fechadas */}
           <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
             <div className="px-5 py-3 border-b border-slate-100 flex items-baseline justify-between gap-4">
               <div>
@@ -519,7 +520,6 @@ export default async function DashboardPage() {
             )}
           </div>
 
-          {/* Alertas operacionais */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Alerta
               titulo="SKUs sem lead time"
@@ -547,7 +547,6 @@ export default async function DashboardPage() {
             />
           </div>
 
-          {/* Oportunidades sob consulta */}
           {oppsSobConsulta > 0 && (
             <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 text-sm text-rose-900">
               <b>{oppsSobConsulta}</b>{" "}
@@ -622,9 +621,7 @@ function DistGrafico({
                 <div className="flex justify-between items-baseline text-sm mb-1">
                   <span className="text-[#1F2C4E]">{d.label}</span>
                   <span className="text-xs text-[#706F6F]">
-                    <b className="text-[#1F2C4E]">
-                      {fmtMoney(d.valor)}
-                    </b>
+                    <b className="text-[#1F2C4E]">{fmtMoney(d.valor)}</b>
                     {total > 0 ? (
                       <span className="ml-2 text-[#706F6F]">
                         {Math.round(pct)}%

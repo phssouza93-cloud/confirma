@@ -49,11 +49,27 @@ export function ImportarCadastroMestre({ qtdAtual }: { qtdAtual: number }) {
             if (!codigo || !descricao) return;
             const codigoStr = String(codigo).trim();
             const fam = codigoStr.substring(0, 3);
+
+            // Lead time: aceita número ("30"), string com número ("30"), ou
+            // textos tipo "sem prazo" / "sem prazo definido" / vazio → null
+            const rawLT = (r["Leadtime"] ?? r["Lead time"] ?? r["Lead Time"] ??
+              r["LeadTime"] ?? r["LEADTIME"] ?? null) as unknown;
+            let leadTime: number | null = null;
+            if (rawLT != null && rawLT !== "") {
+              const s = String(rawLT).trim().toLowerCase();
+              if (s.includes("sem prazo") || s === "n/a" || s === "-") {
+                leadTime = null;
+              } else {
+                const n = Number(String(rawLT).replace(/[^\d.,-]/g, "").replace(",", "."));
+                leadTime = Number.isFinite(n) && n >= 0 ? Math.round(n) : null;
+              }
+            }
+
             lista.push({
               codigo: codigoStr,
               descricao: String(descricao).trim(),
               familia: fam,
-              lead_time_dias: 20,
+              lead_time_dias: leadTime,
             });
           });
         });
@@ -167,7 +183,7 @@ export function ImportarCadastroMestre({ qtdAtual }: { qtdAtual: number }) {
                     Arraste a planilha do cadastro
                   </div>
                   <div className="text-xs text-[#706F6F] mt-1">
-                    Colunas esperadas: Produto, Descrição · lê todas as abas
+                    Colunas esperadas: Produto, Descrição, Leadtime · lê todas as abas
                   </div>
                 </label>
                 {erro && (
@@ -257,6 +273,9 @@ export function ImportarCadastroMestre({ qtdAtual }: { qtdAtual: number }) {
                         <th className="text-left py-2 px-3 font-semibold">
                           Família
                         </th>
+                        <th className="text-right py-2 px-3 font-semibold">
+                          Lead time
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -267,6 +286,13 @@ export function ImportarCadastroMestre({ qtdAtual }: { qtdAtual: number }) {
                           </td>
                           <td className="py-1 px-3 text-sm">{s.descricao}</td>
                           <td className="py-1 px-3 text-xs">{s.familia}</td>
+                          <td className="py-1 px-3 text-right text-xs">
+                            {s.lead_time_dias != null ? (
+                              `${s.lead_time_dias}d`
+                            ) : (
+                              <span className="text-slate-400">sem prazo</span>
+                            )}
+                          </td>
                         </tr>
                       ))}
                     </tbody>

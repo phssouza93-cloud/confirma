@@ -1,18 +1,18 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   PERFIS,
   PERFIL_LABEL,
   PERFIL_DESCRICAO,
-  type Perfil,
 } from "@/lib/permissoes";
 import {
   criarConvite,
   apagarConvite,
   atualizarPerfilUsuario,
   alternarAtivoUsuario,
+  atualizarLiderUsuario,
 } from "./actions";
 
 export type UsuarioRow = {
@@ -21,6 +21,7 @@ export type UsuarioRow = {
   nome: string;
   perfil: string;
   ativo: boolean | null;
+  lider_id: string | null;
   created_at: string | null;
 };
 
@@ -43,9 +44,8 @@ function fmtData(d: string | null) {
 function badgePerfil(p: string) {
   const cores: Record<string, string> = {
     admin: "bg-[#1F2C4E] text-white",
-    pcp: "bg-[#326A84] text-white",
-    consultor: "bg-emerald-600 text-white",
     gestor: "bg-amber-500 text-white",
+    consultor: "bg-emerald-600 text-white",
   };
   const label = (PERFIL_LABEL as Record<string, string>)[p] || p;
   return (
@@ -76,6 +76,18 @@ export function UsuariosClient({
   const [showForm, setShowForm] = useState(false);
   const [linkConvite, setLinkConvite] = useState<string | null>(null);
   const [copiado, setCopiado] = useState(false);
+  const [perfilForm, setPerfilForm] = useState<string>("consultor");
+
+  // Quem pode ser líder = gestores ativos
+  const gestores = useMemo(
+    () => usuarios.filter((u) => u.perfil === "gestor" && u.ativo !== false),
+    [usuarios]
+  );
+  const usuariosPorId = useMemo(() => {
+    const m: Record<string, UsuarioRow> = {};
+    usuarios.forEach((u) => (m[u.id] = u));
+    return m;
+  }, [usuarios]);
 
   function feedback(msg: string, ok: boolean) {
     if (ok) {
@@ -105,6 +117,7 @@ export function UsuariosClient({
       const link = linkDoConvite(r.token);
       setLinkConvite(link);
       setShowForm(false);
+      setPerfilForm("consultor");
       feedback("Convite criado · copie o link abaixo e envie", true);
       router.refresh();
     });
@@ -136,6 +149,16 @@ export function UsuariosClient({
       const r = await atualizarPerfilUsuario(form);
       if (!r.ok) return feedback(r.error || "Erro", false);
       feedback("Perfil atualizado", true);
+      router.refresh();
+    });
+  }
+
+  function handleLiderChange(id: string, lider_id: string) {
+    const novoLider = lider_id === "" ? null : lider_id;
+    startTransition(async () => {
+      const r = await atualizarLiderUsuario(id, novoLider);
+      if (!r.ok) return feedback(r.error || "Erro", false);
+      feedback(novoLider ? "Líder atribuído" : "Líder removido", true);
       router.refresh();
     });
   }
@@ -174,7 +197,6 @@ export function UsuariosClient({
         </div>
       )}
 
-      {/* Link de convite recém-gerado */}
       {linkConvite && (
         <div className="bg-[#E6F9FC] border border-[#64C3D1]/40 rounded-2xl p-4">
           <div className="flex items-baseline justify-between gap-2 mb-2">
@@ -211,7 +233,6 @@ export function UsuariosClient({
         </div>
       )}
 
-      {/* Cabeçalho com botão criar */}
       <div className="flex items-baseline justify-between gap-4">
         <h2 className="text-sm uppercase tracking-widest font-bold text-[#1F2C4E]">
           Usuários cadastrados ({usuarios.length})
@@ -225,7 +246,6 @@ export function UsuariosClient({
         </button>
       </div>
 
-      {/* Form criar convite */}
       {showForm && (
         <form
           action={handleCriar}
@@ -245,7 +265,7 @@ export function UsuariosClient({
                 className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#64C3D1]"
               />
             </div>
-            <div className="md:col-span-5">
+            <div className="md:col-span-4">
               <label className="text-xs text-[#706F6F] block mb-1">
                 Email
               </label>
@@ -257,13 +277,14 @@ export function UsuariosClient({
                 className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#64C3D1]"
               />
             </div>
-            <div className="md:col-span-3">
+            <div className="md:col-span-2">
               <label className="text-xs text-[#706F6F] block mb-1">
                 Perfil
               </label>
               <select
                 name="perfil"
-                defaultValue="consultor"
+                value={perfilForm}
+                onChange={(e) => setPerfilForm(e.target.value)}
                 className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#64C3D1]"
               >
                 {PERFIS.map((p) => (
@@ -273,7 +294,30 @@ export function UsuariosClient({
                 ))}
               </select>
             </div>
+            <div className="md:col-span-2">
+              <label className="text-xs text-[#706F6F] block mb-1">
+                Líder {perfilForm === "consultor" ? "" : "(opcional)"}
+              </label>
+              <select
+                name="lider_id"
+                disabled={perfilForm !== "consultor"}
+                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#64C3D1] disabled:bg-slate-100 disabled:text-slate-400"
+              >
+                <option value="">— sem líder —</option>
+                {gestores.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.nome}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
+          {perfilForm === "consultor" && gestores.length === 0 && (
+            <div className="bg-amber-50 border border-amber-200 text-amber-900 text-xs rounded-lg px-3 py-2">
+              Nenhum gestor cadastrado ainda. Você pode criar o consultor sem
+              líder e depois atribuir, ou convidar o gestor primeiro.
+            </div>
+          )}
           <div className="bg-white border border-slate-200 rounded-lg p-3 text-xs">
             <div className="font-semibold text-[#1F2C4E] mb-1.5">
               O que cada perfil pode acessar:
@@ -299,7 +343,6 @@ export function UsuariosClient({
         </form>
       )}
 
-      {/* Convites pendentes */}
       {convites.length > 0 && (
         <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
           <div className="px-5 py-3 border-b border-slate-100 bg-amber-50/30">
@@ -362,7 +405,6 @@ export function UsuariosClient({
         </div>
       )}
 
-      {/* Lista de usuários */}
       <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-xs uppercase text-[#706F6F]">
@@ -370,8 +412,8 @@ export function UsuariosClient({
               <th className="text-left py-2 px-4 font-semibold">Nome</th>
               <th className="text-left py-2 px-3 font-semibold">Email</th>
               <th className="text-left py-2 px-3 font-semibold">Perfil</th>
+              <th className="text-left py-2 px-3 font-semibold">Líder</th>
               <th className="text-center py-2 px-3 font-semibold">Status</th>
-              <th className="text-right py-2 px-3 font-semibold">Cadastro</th>
               <th className="text-right py-2 px-3 font-semibold">Ações</th>
             </tr>
           </thead>
@@ -379,6 +421,7 @@ export function UsuariosClient({
             {usuarios.map((u) => {
               const ativo = u.ativo !== false;
               const isVoce = u.id === currentUserId;
+              const lider = u.lider_id ? usuariosPorId[u.lider_id] : null;
               return (
                 <tr key={u.id} className={ativo ? "" : "bg-slate-50/50"}>
                   <td className="py-2 px-4 text-sm text-[#1F2C4E]">
@@ -408,6 +451,29 @@ export function UsuariosClient({
                       ))}
                     </select>
                   </td>
+                  <td className="py-2 px-3">
+                    {u.perfil === "consultor" ? (
+                      <select
+                        value={u.lider_id || ""}
+                        onChange={(e) =>
+                          handleLiderChange(u.id, e.target.value)
+                        }
+                        disabled={isPending}
+                        className="bg-white border border-slate-200 rounded-md px-2 py-1 text-xs focus:outline-none focus:border-[#64C3D1]"
+                      >
+                        <option value="">— sem líder —</option>
+                        {gestores.map((g) => (
+                          <option key={g.id} value={g.id}>
+                            {g.nome}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="text-xs text-slate-400">
+                        {lider ? lider.nome : "—"}
+                      </span>
+                    )}
+                  </td>
                   <td className="py-2 px-3 text-center">
                     {ativo ? (
                       <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-semibold uppercase tracking-wider">
@@ -418,9 +484,6 @@ export function UsuariosClient({
                         Desativado
                       </span>
                     )}
-                  </td>
-                  <td className="py-2 px-3 text-right text-xs text-[#706F6F]">
-                    {fmtData(u.created_at)}
                   </td>
                   <td className="py-2 px-3 text-right">
                     <button
@@ -459,7 +522,7 @@ function Perfis() {
       <h2 className="text-sm uppercase tracking-widest font-bold text-[#1F2C4E] mb-3">
         O que cada perfil acessa
       </h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
         {PERFIS.map((p) => (
           <div
             key={p}

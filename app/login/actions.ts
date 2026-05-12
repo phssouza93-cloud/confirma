@@ -19,6 +19,24 @@ export async function loginAction(formData: FormData) {
   });
 
   if (error) {
+    // Tenta detectar se tem convite pendente pra dar mensagem útil
+    const msg = (error.message || "").toLowerCase();
+    if (msg.includes("invalid") || msg.includes("credentials")) {
+      const { data: convite } = await supabase
+        .from("convites")
+        .select("token")
+        .eq("email", email)
+        .is("usado_em", null)
+        .maybeSingle();
+      if (convite?.token) {
+        return redirect(
+          "/login?erro=" +
+            encodeURIComponent(
+              "Você tem um convite pendente. Use o link que recebeu para definir sua senha antes de entrar."
+            )
+        );
+      }
+    }
     return redirect("/login?erro=" + encodeURIComponent(error.message));
   }
 

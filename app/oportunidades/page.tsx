@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { ensureAcesso } from "@/lib/auth";
+import { obterFiltroOwners, normalizaOwner } from "@/lib/owner-filter";
 import { AppHeader } from "../components/AppHeader";
 import { ImportarOportunidades } from "./ImportarOportunidades";
+import { ImportarPdfOportunidade } from "./ImportarPdfOportunidade";
 
 export const dynamic = "force-dynamic";
 
@@ -53,14 +55,30 @@ function fasePill(fase: string) {
 export default async function OportunidadesPage() {
   const ctx = await ensureAcesso("/oportunidades");
   const supabase = await createClient();
-  const perfil = { nome: ctx.nome, perfil: ctx.perfil };
 
-  const { data: opps } = await supabase
-    .from("oportunidades")
-    .select("*")
-    .order("valor", { ascending: false });
+  const filtroOwners = await obterFiltroOwners(ctx.userId, ctx.nome, ctx.perfil);
 
-  const lista = (opps || []) as Opp[];
+  const [{ data: opps }, { data: skusData }, { data: aliasesData }] = await Promise.all([
+    supabase
+      .from("oportunidades")
+      .select("*")
+      .order("valor", { ascending: false }),
+    supabase.from("skus").select("id, codigo, descricao"),
+    supabase.from("sku_aliases").select("descricao_alias, sku_codigo, derivacao"),
+  ]);
+
+  const todasOpps = (opps || []) as Opp[];
+  const lista =
+    filtroOwners.tipo === "todos"
+      ? todasOpps
+      : (() => {
+          const nomesPermitidos = new Set(
+            filtroOwners.owners.map(normalizaOwner)
+          );
+          return todasOpps.filter((o) =>
+            nomesPermitidos.has(normalizaOwner(o.owner))
+          );
+        })();
   const total = lista.reduce((s: number, o: Opp) => s + (o.valor || 0), 0);
   const commit = lista
     .filter((o: Opp) => o.fase === "Commit")
@@ -80,15 +98,24 @@ export default async function OportunidadesPage() {
               <p className="text-xs uppercase tracking-[0.25em] text-[#326A84] font-semibold mb-1">
                 Pipeline comercial
               </p>
-              <h1 className="text-3xl md:text-4xl font-black tracking-tight text-[#1F2C4E] uppercase">
-                Oportunidades
+              <h1 className="text-3xl md:text-4xl font-black tracking-tight text-[#1F2C4E] uppercase leading-tight">
+                Oportunidades negociadas na feira Hospitalar
               </h1>
               <p className="text-sm text-[#706F6F] mt-1 max-w-2xl">
                 Clique numa oportunidade para abrir a tela de negociação com
                 cálculo de prazo em tempo real.
               </p>
             </div>
-            <ImportarOportunidades qtdAtual={lista.length} />
+            <div className="flex items-center gap-2">
+              <a
+                href="/oportunidades/nova"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold uppercase tracking-wider text-xs px-4 py-2 rounded-lg"
+              >
+                + Nova oportunidade
+              </a>
+              <ImportarPdfOportunidade skus={(skusData || []) as { id: string; codigo: string; descricao: string }[]} aliases={(aliasesData || []) as { descricao_alias: string; sku_codigo: string; derivacao: string | null }[]} />
+              {ctx.perfil === "admin" && <ImportarOportunidades qtdAtual={lista.length} />}
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
@@ -110,12 +137,23 @@ export default async function OportunidadesPage() {
             <div className="bg-white border border-[#E6F9FC] rounded-2xl p-12 text-center">
               <div className="text-5xl text-slate-300 mb-3">📊</div>
               <h2 className="text-lg font-bold text-[#1F2C4E] mb-1 uppercase tracking-wide">
-                Nenhuma oportunidade cadastrada
+                Nenhuma oportunidade
               </h2>
               <p className="text-sm text-[#706F6F] mb-5">
-                Importe a planilha do pipeline para começar.
+                {ctx.perfil === "admin"
+                  ? "Importe a planilha do pipeline para começar."
+                  : "Você ainda não tem oportunidades atribuídas. Quando uma for criada com seu nome como owner, ela aparecerá aqui."}
               </p>
-              <ImportarOportunidades qtdAtual={0} />
+              <div className="flex items-center justify-center gap-2 flex-wrap">
+                <a
+                  href="/oportunidades/nova"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold uppercase tracking-wider text-xs px-4 py-2 rounded-lg"
+                >
+                  + Nova oportunidade
+                </a>
+                <ImportarPdfOportunidade skus={(skusData || []) as { id: string; codigo: string; descricao: string }[]} aliases={(aliasesData || []) as { descricao_alias: string; sku_codigo: string; derivacao: string | null }[]} />
+                {ctx.perfil === "admin" && <ImportarOportunidades qtdAtual={0} />}
+              </div>
             </div>
           ) : (
             <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">

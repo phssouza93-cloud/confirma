@@ -7,7 +7,7 @@ export type SKUCadastroInput = {
   codigo: string;
   descricao: string;
   familia?: string | null;
-  lead_time_dias?: number;
+  lead_time_dias?: number | null;
 };
 
 export type DerivacaoInput = {
@@ -27,7 +27,9 @@ export async function importarCadastroMestre(skus: SKUCadastroInput[]) {
   }
   const supabase = await createClient();
 
-  // Busca SKUs existentes para preservar lead_time_dias já definido pelo PCP
+  // Busca SKUs existentes pra preservar lead_time SOMENTE quando a planilha
+  // não trouxer a coluna (s.lead_time_dias === undefined).
+  // Se a planilha trouxer (número ou null), o valor da planilha PREVALECE.
   const { data: atuais } = await supabase
     .from("skus")
     .select("codigo, lead_time_dias");
@@ -38,13 +40,18 @@ export async function importarCadastroMestre(skus: SKUCadastroInput[]) {
 
   const payload = skus.map((s) => {
     const codigoStr = String(s.codigo).trim();
+    const planilhaTrouxeLT = Object.prototype.hasOwnProperty.call(
+      s,
+      "lead_time_dias"
+    );
+    const lt = planilhaTrouxeLT
+      ? s.lead_time_dias ?? null
+      : leadTimePorCodigo[codigoStr] ?? null;
     return {
       codigo: codigoStr,
       descricao: String(s.descricao).trim(),
       familia: s.familia ? String(s.familia).trim() : null,
-      // Preserva lead_time definido pelo PCP; SKU novo entra com null (PCP preenche depois)
-      lead_time_dias:
-        leadTimePorCodigo[codigoStr] ?? s.lead_time_dias ?? null,
+      lead_time_dias: lt,
       ativo: true,
     };
   });

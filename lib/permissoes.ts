@@ -1,35 +1,30 @@
 /**
  * Permissões do Confirma.
  *
- * Cada perfil tem acesso a um conjunto de áreas/rotas. A regra é simples:
- * temAcesso(perfil, rota) === true → mostra no header e permite entrar.
+ * Perfis e o que cada um acessa. Filtragem por owner é feita nas próprias
+ * páginas de Oportunidades e Dashboard (gestor vê suas + dos liderados,
+ * consultor só as próprias).
  */
 
-export type Perfil = "admin" | "pcp" | "consultor" | "gestor";
+export type Perfil = "admin" | "consultor" | "gestor";
 
-export const PERFIS: Perfil[] = ["admin", "pcp", "consultor", "gestor"];
+export const PERFIS: Perfil[] = ["admin", "gestor", "consultor"];
 
 export const PERFIL_LABEL: Record<Perfil, string> = {
   admin: "Administrador",
-  pcp: "PCP",
-  consultor: "Consultor",
   gestor: "Gestor",
+  consultor: "Consultor",
 };
 
 export const PERFIL_DESCRICAO: Record<Perfil, string> = {
   admin:
-    "Acesso total — inclui Configurações (usuários, convites) e Admin (aliases, órfãos).",
-  pcp:
-    "Cadastro mestre e produção: Estoque, Em andamento, Carteira, Disponível e Admin (aliases/órfãos).",
-  consultor:
-    "Comercial: Oportunidades, Disponível. Pode criar, calcular e firmar oportunidades.",
+    "Acesso total: todas as áreas e todas as oportunidades. Gerencia usuários, aliases e cadastros.",
   gestor:
-    "Visão executiva: Dashboard, Oportunidades, Disponível e Disponível. Sem cadastros.",
+    "Acessa Estoque, WIP, Carteira e Disponível inteiros. Vê suas oportunidades e as dos consultores liderados. Dashboard filtrado pelo time.",
+  consultor:
+    "Acessa Carteira inteira, Disponível e apenas as oportunidades dele. Sem cadastros nem dashboard.",
 };
 
-/**
- * Áreas do sistema. Usamos prefixo de rota.
- */
 export const AREAS = {
   inicio: "/",
   estoque: "/estoque",
@@ -56,16 +51,16 @@ const PERMISSOES: Record<Perfil, Area[]> = {
     "admin",
     "configuracoes",
   ],
-  pcp: [
+  gestor: [
     "inicio",
     "estoque",
     "wip",
     "carteira",
     "disponivel",
-    "admin",
+    "oportunidades",
+    "dashboard",
   ],
-  consultor: ["inicio", "oportunidades", "disponivel"],
-  gestor: ["inicio", "dashboard", "oportunidades", "disponivel"],
+  consultor: ["inicio", "carteira", "disponivel", "oportunidades"],
 };
 
 export function ehPerfilValido(p: string): p is Perfil {
@@ -77,9 +72,6 @@ export function areasDoPerfil(perfil: string): Area[] {
   return PERMISSOES[perfil];
 }
 
-/**
- * Verifica se um perfil tem acesso a uma rota (matching por prefixo).
- */
 export function temAcesso(perfil: string, rota: string): boolean {
   if (!ehPerfilValido(perfil)) return false;
   const areas = PERMISSOES[perfil];

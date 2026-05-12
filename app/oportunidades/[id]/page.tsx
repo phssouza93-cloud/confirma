@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { ensureAcesso } from "@/lib/auth";
+import { obterFiltroOwners, ownerEstaNoFiltro } from "@/lib/owner-filter";
 import { AppHeader } from "@/app/components/AppHeader";
 import {
   calcularOportunidade,
@@ -11,6 +12,7 @@ import {
 import { indexarAliases, type Alias } from "@/lib/match";
 import { formatarDerivacao } from "@/lib/derivacao";
 import { BotaoFirmar } from "./BotaoFirmar";
+import { PrazoNegociadoBox } from "./PrazoNegociadoBox";
 
 export const dynamic = "force-dynamic";
 
@@ -62,9 +64,7 @@ export default async function DetalheOportunidade({ params }: Props) {
   const { id } = await params;
   const ctx = await ensureAcesso("/oportunidades");
   const supabase = await createClient();
-  const perfil = { nome: ctx.nome, perfil: ctx.perfil };
 
-  // Busca oportunidade + itens
   const { data: opp } = await supabase
     .from("oportunidades")
     .select("*")
@@ -72,19 +72,24 @@ export default async function DetalheOportunidade({ params }: Props) {
     .single();
   if (!opp) notFound();
 
+  const filtroOwners = await obterFiltroOwners(
+    ctx.userId,
+    ctx.nome,
+    ctx.perfil
+  );
+  if (!ownerEstaNoFiltro(opp.owner, filtroOwners)) notFound();
+
   const { data: itens } = await supabase
     .from("oportunidade_itens")
     .select("*")
     .eq("oportunidade_id", id);
   const listaItens = (itens || []) as Item[];
 
-  // Busca SKUs cadastrados
   const { data: skusData } = await supabase
     .from("skus")
     .select("id, codigo, descricao, estoque, lead_time_dias, eh_servico");
   const skus = (skusData || []) as SKUFull[];
 
-  // Busca derivações por SKU (para mostrar mix disponível)
   const { data: derivData } = await supabase
     .from("estoque_derivacoes")
     .select("sku_id, derivacao, qtd_disponivel");
@@ -99,13 +104,11 @@ export default async function DetalheOportunidade({ params }: Props) {
     if (!derivPorSkuId[d.sku_id]) derivPorSkuId[d.sku_id] = [];
     derivPorSkuId[d.sku_id].push(d);
   });
-  // mapa codigo → id (para usar no render)
   const codigoParaId: Record<string, string> = {};
   skus.forEach((s) => {
     codigoParaId[s.codigo] = s.id;
   });
 
-  // Busca carteira reservada (sum por sku_codigo, status != liberado)
   const { data: carteiraData } = await supabase
     .from("carteira_pedidos")
     .select("sku_codigo, quantidade, status");
@@ -116,7 +119,6 @@ export default async function DetalheOportunidade({ params }: Props) {
       (carteiraReservada[l.sku_codigo] || 0) + (l.quantidade || 0);
   });
 
-  // Busca WIP disponível (com data, não atrasada)
   const { data: wipData } = await supabase
     .from("wip")
     .select("sku_codigo, qtd_prevista, data_prevista, status");
@@ -132,7 +134,7 @@ export default async function DetalheOportunidade({ params }: Props) {
     }) => {
       if (!w.data_prevista) return;
       const dt = new Date(w.data_prevista);
-      if (dt < hoje) return; // atrasada, ignora
+      if (dt < hoje) return;
       if (!wipPorSku[w.sku_codigo]) wipPorSku[w.sku_codigo] = [];
       wipPorSku[w.sku_codigo].push({
         sku_codigo: w.sku_codigo,
@@ -142,13 +144,11 @@ export default async function DetalheOportunidade({ params }: Props) {
     }
   );
 
-  // Busca aliases e indexa para o motor de match
   const { data: aliasesData } = await supabase
     .from("sku_aliases")
     .select("descricao_alias, sku_codigo, derivacao");
   const aliasMap = indexarAliases((aliasesData || []) as Alias[]);
 
-  // Calcula
   const resultado = calcularOportunidade(
     listaItens.map((it: Item) => ({
       sku_codigo: it.sku_codigo,
@@ -160,7 +160,8 @@ export default async function DetalheOportunidade({ params }: Props) {
     skus,
     carteiraReservada,
     wipPorSku,
-    aliasMap
+    aliasMap,
+    opp.regiao
   );
 
   const prazoColor =
@@ -190,7 +191,6 @@ export default async function DetalheOportunidade({ params }: Props) {
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 space-y-4">
-              {/* Cabeçalho */}
               <div className="bg-white border border-slate-200 rounded-2xl p-5">
                 <div className="flex justify-between items-start gap-4 mb-3">
                   <div>
@@ -207,18 +207,13 @@ export default async function DetalheOportunidade({ params }: Props) {
                   {fasePill(opp.fase)}
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t border-slate-100 text-sm">
-                  <Field
-                    label="Valor"
-                    valor={fmtMoney(opp.valor || 0)}
-                    bold
-                  />
+                  <Field label="Valor" valor={fmtMoney(opp.valor || 0)} bold />
                   <Field label="Fechamento" valor={fmtData(opp.data_fechamento)} />
                   <Field label="Owner" valor={opp.owner} />
                   <Field label="Região" valor={opp.regiao} />
                 </div>
               </div>
 
-              {/* Itens */}
               <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
                 <div className="px-5 py-3 border-b border-slate-100">
                   <h2 className="text-sm font-bold text-[#1F2C4E] uppercase tracking-wide">
@@ -231,19 +226,11 @@ export default async function DetalheOportunidade({ params }: Props) {
                 <table className="w-full text-sm">
                   <thead className="bg-slate-50 text-xs uppercase text-[#706F6F]">
                     <tr>
-                      <th className="text-left py-2 px-3 font-semibold">
-                        SKU · descrição
-                      </th>
+                      <th className="text-left py-2 px-3 font-semibold">SKU · descrição</th>
                       <th className="text-right py-2 px-3 font-semibold">Qtd</th>
-                      <th className="text-left py-2 px-3 font-semibold">
-                        Fonte
-                      </th>
-                      <th className="text-left py-2 px-3 font-semibold">
-                        Memorial
-                      </th>
-                      <th className="text-right py-2 px-3 font-semibold">
-                        Prazo
-                      </th>
+                      <th className="text-left py-2 px-3 font-semibold">Fonte</th>
+                      <th className="text-left py-2 px-3 font-semibold">Memorial</th>
+                      <th className="text-right py-2 px-3 font-semibold">Prazo</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -251,21 +238,13 @@ export default async function DetalheOportunidade({ params }: Props) {
                       const r = resultado.itens[idx];
                       const isGargalo = idx === resultado.gargalo_idx;
                       let fonteLabel = "—";
-                      if (r.status === "sem_cadastro")
-                        fonteLabel = "⚠ Sem cadastro";
-                      else if (r.status === "servico")
-                        fonteLabel = "🔧 Serviço";
-                      else if (r.fonte === "estoque")
-                        fonteLabel = "✓ Estoque";
-                      else if (r.fonte === "wip")
-                        fonteLabel = "🏭 Estoque + WIP";
-                      else if (r.fonte === "producao_zero")
-                        fonteLabel = "⚙ Produção do zero";
+                      if (r.status === "sem_cadastro") fonteLabel = "⚠ Sem cadastro";
+                      else if (r.status === "servico") fonteLabel = "🔧 Serviço";
+                      else if (r.fonte === "estoque") fonteLabel = "✓ Estoque";
+                      else if (r.fonte === "wip") fonteLabel = "🏭 Estoque + WIP";
+                      else if (r.fonte === "producao_zero") fonteLabel = "⚙ Produção do zero";
                       return (
-                        <tr
-                          key={it.id}
-                          className={isGargalo ? "bg-rose-50" : ""}
-                        >
+                        <tr key={it.id} className={isGargalo ? "bg-rose-50" : ""}>
                           <td className="py-2 px-3 align-top">
                             <div className="flex items-center gap-2 mb-0.5">
                               <span className="font-mono text-xs px-1.5 py-0.5 bg-slate-100 text-slate-700 rounded">
@@ -285,52 +264,34 @@ export default async function DetalheOportunidade({ params }: Props) {
                                 {r.derivacao_sugerida && (
                                   <>
                                     {" · "}
-                                    <span className="font-mono">
-                                      derivação {r.derivacao_sugerida}
-                                    </span>
+                                    <span className="font-mono">derivação {r.derivacao_sugerida}</span>
                                   </>
                                 )}
                               </div>
                             )}
                             {r.matched_by === "descricao" && (
                               <div className="text-xs text-[#326A84] mt-0.5">
-                                ↪ vinculado por descrição → {r.sku_codigo_matched}{" "}
-                                ({Math.round(r.match_score * 100)}%)
+                                ↪ vinculado por descrição → {r.sku_codigo_matched} ({Math.round(r.match_score * 100)}%)
                               </div>
                             )}
                           </td>
-                          <td className="py-2 px-3 align-top text-right text-sm font-medium">
-                            {it.quantidade}
-                          </td>
-                          <td className="py-2 px-3 align-top text-xs">
-                            {fonteLabel}
-                          </td>
+                          <td className="py-2 px-3 align-top text-right text-sm font-medium">{it.quantidade}</td>
+                          <td className="py-2 px-3 align-top text-xs">{fonteLabel}</td>
                           <td className="py-2 px-3 align-top text-xs text-[#706F6F]">
                             {r.status === "sem_cadastro" ? (
                               "SKU não localizado no cadastro"
                             ) : r.status === "servico" ? (
-                              <span className="italic">
-                                Item de serviço — não afeta prazo
-                              </span>
+                              <span className="italic">Item de serviço — não afeta prazo</span>
                             ) : (
                               <>
-                                Estoque: {r.estoque} − Carteira: {r.carteira} ={" "}
-                                <b>{r.disponivel} disp.</b>
-                                {r.wip_total > 0 && (
-                                  <> · WIP: {r.wip_total}</>
-                                )}
-                                {r.consumo_estoque > 0 && (
-                                  <> · {r.consumo_estoque} do estoque</>
-                                )}
-                                {r.consumo_wip > 0 && (
-                                  <> · {r.consumo_wip} do WIP</>
-                                )}
+                                Estoque: {r.estoque} − Carteira: {r.carteira} = <b>{r.disponivel} disp.</b>
+                                {r.wip_total > 0 && <> · WIP: {r.wip_total}</>}
+                                {r.consumo_estoque > 0 && <> · {r.consumo_estoque} do estoque</>}
+                                {r.consumo_wip > 0 && <> · {r.consumo_wip} do WIP</>}
                                 {r.consumo_producao_zero > 0 && (
                                   <>
                                     {" · "}
-                                    <b className="text-rose-700">
-                                      {r.consumo_producao_zero} a produzir
-                                    </b>
+                                    <b className="text-rose-700">{r.consumo_producao_zero} a produzir</b>
                                   </>
                                 )}
                                 {(() => {
@@ -341,28 +302,14 @@ export default async function DetalheOportunidade({ params }: Props) {
                                   if (derivs.length === 0) return null;
                                   return (
                                     <div className="mt-1 flex flex-wrap gap-1">
-                                      <span className="text-[10px] uppercase tracking-wide text-[#706F6F]/70 mr-1">
-                                        mix disp.
-                                      </span>
+                                      <span className="text-[10px] uppercase tracking-wide text-[#706F6F]/70 mr-1">mix disp.</span>
                                       {derivs
                                         .slice()
-                                        .sort((a, b) =>
-                                          (a.derivacao || "").localeCompare(
-                                            b.derivacao || ""
-                                          )
-                                        )
+                                        .sort((a, b) => (a.derivacao || "").localeCompare(b.derivacao || ""))
                                         .map((d, i) => (
-                                          <span
-                                            key={i}
-                                            className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-[#E6F9FC] text-[#1E9DBA] rounded text-[11px]"
-                                          >
-                                            <span className="font-mono">
-                                              {formatarDerivacao(d.derivacao) ||
-                                                "—"}
-                                            </span>
-                                            <span className="font-semibold">
-                                              {d.qtd_disponivel}
-                                            </span>
+                                          <span key={i} className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-[#E6F9FC] text-[#1E9DBA] rounded text-[11px]">
+                                            <span className="font-mono">{formatarDerivacao(d.derivacao) || "—"}</span>
+                                            <span className="font-semibold">{d.qtd_disponivel}</span>
                                           </span>
                                         ))}
                                     </div>
@@ -397,35 +344,22 @@ export default async function DetalheOportunidade({ params }: Props) {
               </div>
             </div>
 
-            {/* Painel direito: promessa de prazo */}
             <div className="space-y-4">
               <div
-                className={
-                  "rounded-2xl p-6 text-center text-white " + prazoColor
-                }
-                style={
-                  resultado.prazo_dias == null
-                    ? { background: "#1F2C4E" }
-                    : undefined
-                }
+                className={"rounded-2xl p-6 text-center text-white " + prazoColor}
+                style={resultado.prazo_dias == null ? { background: "#1F2C4E" } : undefined}
               >
-                <div className="text-xs uppercase tracking-widest opacity-80 mb-2">
-                  Promessa de prazo
-                </div>
+                <div className="text-xs uppercase tracking-widest opacity-80 mb-2">Menor prazo de liberação</div>
                 {resultado.prazo_dias != null ? (
                   <>
-                    <div className="text-6xl font-black leading-none">
-                      {resultado.prazo_dias}
-                    </div>
-                    <div className="text-sm mt-1 opacity-90">dias úteis</div>
+                    <div className="text-6xl font-black leading-none">{resultado.prazo_dias}</div>
+                    <div className="text-sm mt-1 opacity-90">dias corridos</div>
                     {resultado.gargalo_idx != null ? (
                       <div className="mt-4 pt-4 border-t border-white/20 text-xs">
                         <div className="opacity-80">Gargalo</div>
                         <div className="font-mono font-bold mt-0.5">
-                          {resultado.itens[resultado.gargalo_idx]
-                            .sku_codigo_matched ||
-                            resultado.itens[resultado.gargalo_idx]
-                              .sku_codigo_input}
+                          {resultado.itens[resultado.gargalo_idx].sku_codigo_matched ||
+                            resultado.itens[resultado.gargalo_idx].sku_codigo_input}
                         </div>
                       </div>
                     ) : (
@@ -437,15 +371,45 @@ export default async function DetalheOportunidade({ params }: Props) {
                 ) : (
                   <>
                     <div className="text-2xl font-bold">Sob consulta</div>
-                    <div className="text-xs mt-2 opacity-80">
-                      Itens sem cadastro mestre
-                    </div>
+                    <div className="text-xs mt-2 opacity-80">Itens sem cadastro mestre</div>
                   </>
                 )}
                 <div className="mt-4 text-xs opacity-70">
                   Cálculo oficial · {new Date().toLocaleDateString("pt-BR")}
                 </div>
               </div>
+
+              {resultado.prazo_entrega_dias != null && (
+                <div className="bg-white border border-slate-200 rounded-2xl p-5 text-center">
+                  <div className="text-xs uppercase tracking-widest text-[#706F6F] font-semibold mb-2">
+                    Prazo de entrega ao cliente
+                  </div>
+                  <div className="text-4xl font-black text-[#1F2C4E] leading-none">
+                    {resultado.prazo_entrega_dias}
+                  </div>
+                  <div className="text-xs mt-1 text-[#706F6F]">dias corridos</div>
+                  <div className="mt-3 pt-3 border-t border-slate-100 text-[11px] text-[#706F6F] leading-relaxed">
+                    {resultado.prazo_dias}d liberação
+                    {" + 2d fat./expedição"}
+                    {resultado.dias_transporte != null && (
+                      <> + {resultado.dias_transporte}d transporte</>
+                    )}
+                    {resultado.dias_transporte == null && opp.regiao && (
+                      <> (UF “{opp.regiao}” não reconhecida)</>
+                    )}
+                    {!opp.regiao && (
+                      <> (defina UF/região na oportunidade)</>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <PrazoNegociadoBox
+                opp_id={opp.id}
+                valorInicial={opp.prazo_negociado_dias ?? null}
+                menorPrazo={resultado.prazo_dias}
+                bloqueado={opp.fase === "Fechado"}
+              />
 
               <BotaoFirmar opp_id={opp.id} fase={opp.fase} />
 
@@ -454,9 +418,8 @@ export default async function DetalheOportunidade({ params }: Props) {
                   Como o prazo é calculado
                 </div>
                 <p className="text-xs text-[#1F2C4E]/80 leading-relaxed">
-                  <b>Estoque − Carteira</b> = disponível. Se faltar, consome{" "}
-                  <b>WIP</b> com data prevista. Se ainda faltar, vai pra{" "}
-                  <b>produção do zero</b>. O prazo da oportunidade é o do SKU{" "}
+                  <b>Estoque − Carteira</b> = disponível. Se faltar, consome <b>WIP</b> com data prevista.
+                  Se ainda faltar, vai pra <b>produção do zero</b>. O prazo da oportunidade é o do SKU{" "}
                   <b>mais demorado</b> (regra do gargalo).
                 </p>
               </div>
@@ -488,11 +451,7 @@ function Field({
       <div className="text-xs uppercase tracking-wider text-[#706F6F] font-semibold">
         {label}
       </div>
-      <div
-        className={
-          "mt-0.5 " + (bold ? "font-bold text-[#1F2C4E]" : "text-[#1F2C4E]")
-        }
-      >
+      <div className={"mt-0.5 " + (bold ? "font-bold text-[#1F2C4E]" : "text-[#1F2C4E]")}>
         {valor}
       </div>
     </div>

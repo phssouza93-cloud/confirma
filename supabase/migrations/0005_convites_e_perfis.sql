@@ -33,3 +33,31 @@ create policy "convites_select_all" on public.convites
   for select using (true);
 
 -- service_role bypassa RLS, então não precisa de policy de write
+
+-- 3) Policies de escrita para admin (faltavam na versão original)
+drop policy if exists "convites_admin_insert" on public.convites;
+create policy "convites_admin_insert" on public.convites
+  for insert with check (
+    exists (
+      select 1 from public.usuarios u
+      where u.id = auth.uid() and u.perfil = 'admin'
+    )
+  );
+
+drop policy if exists "convites_admin_update" on public.convites;
+create policy "convites_admin_update" on public.convites
+  for update using (
+    exists (
+      select 1 from public.usuarios u
+      where u.id = auth.uid() and u.perfil = 'admin'
+    )
+  );
+
+drop policy if exists "convites_admin_delete" on public.convites;
+create policy "convites_admin_delete" on public.convites
+  for delete using (
+    exists (
+      select 1 from public.usuarios u
+      where u.id = auth.uid() and u.perfil = 'admin'
+    )
+  );

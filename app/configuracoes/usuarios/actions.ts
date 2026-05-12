@@ -26,19 +26,20 @@ function invalidar() {
 
 export async function criarConvite(formData: FormData) {
   const ctx = await ensureAdmin();
-  const supabase = await createClient();
+  const admin = getAdmin();
 
   const email = String(formData.get("email") || "").trim().toLowerCase();
   const nome = String(formData.get("nome") || "").trim();
   const perfil = String(formData.get("perfil") || "consultor");
+  const liderIdRaw = String(formData.get("lider_id") || "").trim();
+  const lider_id = liderIdRaw === "" ? null : liderIdRaw;
 
   if (!email) return { ok: false, error: "Email obrigatório" };
   if (!nome) return { ok: false, error: "Nome obrigatório" };
   if (!ehPerfilValido(perfil))
     return { ok: false, error: "Perfil inválido" };
 
-  // Já existe usuário com esse email?
-  const { data: jaExiste } = await supabase
+  const { data: jaExiste } = await admin
     .from("usuarios")
     .select("id")
     .eq("email", email)
@@ -46,8 +47,7 @@ export async function criarConvite(formData: FormData) {
   if (jaExiste)
     return { ok: false, error: "Já existe usuário com esse email" };
 
-  // Já tem convite pendente?
-  const { data: convitePendente } = await supabase
+  const { data: convitePendente } = await admin
     .from("convites")
     .select("id")
     .eq("email", email)
@@ -60,12 +60,13 @@ export async function criarConvite(formData: FormData) {
     };
 
   const token = geraToken();
-  const { error } = await supabase.from("convites").insert({
+  const { error } = await admin.from("convites").insert({
     email,
     nome,
     perfil,
     token,
     criado_por: ctx.userId,
+    lider_id: perfil === "consultor" ? lider_id : null,
   });
   if (error) return { ok: false, error: error.message };
 
@@ -73,11 +74,36 @@ export async function criarConvite(formData: FormData) {
   return { ok: true, token };
 }
 
+export async function atualizarLiderUsuario(
+  id: string,
+  lider_id: string | null
+) {
+  const ctx = await ensureAdmin();
+  if (!id) return { ok: false, error: "ID inválido" };
+  if (id === lider_id)
+    return { ok: false, error: "Usuário não pode ser líder de si mesmo" };
+  if (id === ctx.userId && lider_id)
+    return { ok: false, error: "Admin não pode ter líder" };
+
+  const admin = getAdmin();
+  const { error, data } = await admin
+    .from("usuarios")
+    .update({ lider_id })
+    .eq("id", id)
+    .select();
+  if (error) return { ok: false, error: error.message };
+  if (!data || data.length === 0)
+    return { ok: false, error: "Nenhuma linha afetada — verifique o ID" };
+
+  invalidar();
+  return { ok: true };
+}
+
 export async function apagarConvite(id: string) {
   await ensureAdmin();
   if (!id) return { ok: false, error: "ID inválido" };
-  const supabase = await createClient();
-  const { error } = await supabase.from("convites").delete().eq("id", id);
+  const admin = getAdmin();
+  const { error } = await admin.from("convites").delete().eq("id", id);
   if (error) return { ok: false, error: error.message };
   invalidar();
   return { ok: true };
@@ -92,7 +118,6 @@ export async function atualizarPerfilUsuario(formData: FormData) {
   if (!ehPerfilValido(perfil))
     return { ok: false, error: "Perfil inválido" };
 
-  // Não permitir admin tirar o próprio perfil de admin (evita lock-out)
   if (id === ctx.userId && perfil !== "admin") {
     return {
       ok: false,
@@ -100,12 +125,21 @@ export async function atualizarPerfilUsuario(formData: FormData) {
     };
   }
 
-  const supabase = await createClient();
-  const { error } = await supabase
+  const admin = getAdmin();
+  // Se está virando admin/gestor, limpa o lider_id (não faz sentido ter líder)
+  const update: { perfil: Perfil; lider_id?: null } = {
+    perfil: perfil as Perfil,
+  };
+  if (perfil === "admin" || perfil === "gestor") update.lider_id = null;
+
+  const { error, data } = await admin
     .from("usuarios")
-    .update({ perfil: perfil as Perfil })
-    .eq("id", id);
+    .update(update)
+    .eq("id", id)
+    .select();
   if (error) return { ok: false, error: error.message };
+  if (!data || data.length === 0)
+    return { ok: false, error: "Nenhuma linha afetada" };
 
   invalidar();
   return { ok: true };
@@ -117,21 +151,19 @@ export async function alternarAtivoUsuario(id: string, ativo: boolean) {
   if (id === ctx.userId && !ativo) {
     return { ok: false, error: "Você não pode desativar a si mesmo" };
   }
-  const supabase = await createClient();
-  const { error } = await supabase
+  const admin = getAdmin();
+  const { error, data } = await admin
     .from("usuarios")
     .update({ ativo })
-    .eq("id", id);
+    .eq("id", id)
+    .select();
   if (error) return { ok: false, error: error.message };
+  if (!data || data.length === 0)
+    return { ok: false, error: "Nenhuma linha afetada" };
   invalidar();
   return { ok: true };
 }
 
-/**
- * Ativa o convite: cria o user no Supabase Auth e a linha em usuarios.
- * Chamada PELA PÁGINA PÚBLICA /convite/[token] depois que o convidado
- * define a senha.
- */
 export async function aceitarConvite(formData: FormData) {
   const token = String(formData.get("token") || "");
   const senha = String(formData.get("senha") || "");
@@ -155,7 +187,6 @@ export async function aceitarConvite(formData: FormData) {
   if (convite.expira_em && new Date(convite.expira_em) < new Date())
     return { ok: false, error: "Convite expirado. Peça um novo." };
 
-  // Cria user no Auth via service role
   const admin = getAdmin();
   const { data: novoUser, error: errAuth } = await admin.auth.admin.createUser({
     email: convite.email,
@@ -166,25 +197,27 @@ export async function aceitarConvite(formData: FormData) {
   if (errAuth) {
     return { ok: false, error: errAuth.message };
   }
+  const userId = novoUser.user!.id;
 
-  // Cria linha em usuarios
-  const { error: errIns } = await admin.from("usuarios").insert({
-    id: novoUser.user!.id,
-    email: convite.email,
-    nome: convite.nome,
-    perfil: convite.perfil,
-    ativo: true,
-  });
+  const { error: errIns } = await admin.from("usuarios").upsert(
+    {
+      id: userId,
+      email: convite.email,
+      nome: convite.nome,
+      perfil: convite.perfil,
+      ativo: true,
+      lider_id: convite.lider_id || null,
+    },
+    { onConflict: "id" }
+  );
   if (errIns) {
-    // limpa o user do Auth se inserir em usuarios falhar
-    await admin.auth.admin.deleteUser(novoUser.user!.id);
+    await admin.auth.admin.deleteUser(userId);
     return { ok: false, error: errIns.message };
   }
 
-  // Marca convite como usado
   await admin
     .from("convites")
-    .update({ usado_em: new Date().toISOString(), usado_por: novoUser.user!.id })
+    .update({ usado_em: new Date().toISOString(), usado_por: userId })
     .eq("id", convite.id);
 
   return { ok: true };

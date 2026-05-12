@@ -147,3 +147,46 @@ export async function apagarPedido(numeroPedido: string) {
   revalidatePath("/carteira");
   return { ok: true };
 }
+
+/**
+ * Atualiza a previsão de liberação de UM pedido inteiro (todas as linhas com
+ * o mesmo numero_pedido). Editado pelo PCP na tela de Carteira.
+ * Aceita string "YYYY-MM-DD" ou null pra limpar.
+ */
+export async function atualizarPrevLiberacaoPedido(
+  numero_pedido: string,
+  prev_liberacao: string | null
+) {
+  if (!numero_pedido) return { ok: false, error: "Pedido inválido" };
+  const valor =
+    prev_liberacao && prev_liberacao.trim() !== "" ? prev_liberacao : null;
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("carteira_pedidos")
+    .update({ prev_liberacao: valor })
+    .eq("numero_pedido", numero_pedido);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/carteira");
+  return { ok: true };
+}
+
+/**
+ * Atualiza prev_liberacao de UMA linha específica (caso PCP queira
+ * granularidade por item dentro do pedido).
+ */
+export async function atualizarPrevLiberacaoLinha(
+  linha_id: string,
+  prev_liberacao: string | null
+) {
+  if (!linha_id) return { ok: false, error: "Linha inválida" };
+  const valor =
+    prev_liberacao && prev_liberacao.trim() !== "" ? prev_liberacao : null;
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("carteira_pedidos")
+    .update({ prev_liberacao: valor })
+    .eq("id", linha_id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/carteira");
+  return { ok: true };
+}

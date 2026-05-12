@@ -1,11 +1,19 @@
 // Motor de cálculo de prazo
 // Fórmula: Estoque Disponível = Estoque − Carteira ; WIP só entra se faltar
+//
+// Dois prazos calculados:
+//   • Liberação:   quando o produto fica pronto na fábrica (dias corridos)
+//   • Entrega:     liberação + 2 DIAS ÚTEIS (faturamento+expedição) +
+//                  transporte(UF) em dias corridos. Pulando fins de semana
+//                  nos dias úteis, o total final é convertido em dias corridos.
 
 import { matchSKU, type SKUCadastro, type Alias } from "./match";
+import {
+  diasTransporteDoUF,
+  FATURAMENTO_EXPEDICAO_DIAS,
+} from "./transporte";
 
 export const PARAMS = {
-  bufferDiasUteis: 3,
-  logisticaDiasUteis: 5,
   validadeHoras: 24,
 };
 
@@ -51,14 +59,39 @@ export type ResultadoItem = {
 
 export type ResultadoOportunidade = {
   itens: ResultadoItem[];
-  prazo_dias: number | null;
+  prazo_dias: number | null;           // prazo de LIBERAÇÃO (motor)
+  prazo_entrega_dias: number | null;   // liberação + 2 + transporte(UF)
+  dias_transporte: number | null;      // dias úteis de transporte pro UF
   gargalo_idx: number | null;
   total_valor: number;
 };
 
-function diasUteisEntre(d1: Date, d2: Date): number {
-  const ms = d2.getTime() - d1.getTime();
+function diasCorridosEntre(d1: Date, d2: Date): number {
+  // Conta dias corridos entre duas datas. Resultado nunca negativo.
+  if (d2 <= d1) return 0;
+  const a = new Date(d1);
+  a.setHours(0, 0, 0, 0);
+  const b = new Date(d2);
+  b.setHours(0, 0, 0, 0);
+  const ms = b.getTime() - a.getTime();
   return Math.max(0, Math.round(ms / (1000 * 60 * 60 * 24)));
+}
+
+function somarDiasCorridos(base: Date, dias: number): Date {
+  const d = new Date(base);
+  d.setDate(d.getDate() + Math.max(0, Math.round(dias)));
+  return d;
+}
+
+function somarDiasUteis(base: Date, dias: number): Date {
+  const d = new Date(base);
+  let restantes = Math.max(0, Math.round(dias));
+  while (restantes > 0) {
+    d.setDate(d.getDate() + 1);
+    const dow = d.getDay(); // 0 = dom, 6 = sab
+    if (dow !== 0 && dow !== 6) restantes--;
+  }
+  return d;
 }
 
 export function calcularItem(
@@ -127,9 +160,13 @@ export function calcularItem(
   const estoque = skuFull.estoque;
   const carteira = carteiraReservada[codigo] || 0;
   const disponivel = Math.max(0, estoque - carteira);
-  const wipOps = (wipPorSku[codigo] || []).slice().sort(
-    (a, b) => new Date(a.data_prevista).getTime() - new Date(b.data_prevista).getTime()
-  );
+  const wipOps = (wipPorSku[codigo] || [])
+    .slice()
+    .sort(
+      (a, b) =>
+        new Date(a.data_prevista).getTime() -
+        new Date(b.data_prevista).getTime()
+    );
   const wipTotal = wipOps.reduce((s, x) => s + x.qtd, 0);
 
   const qtd = item.quantidade;
@@ -139,10 +176,15 @@ export function calcularItem(
   let fonte: ResultadoItem["fonte"] = null;
   let prazo_dias = 0;
 
+  // Regra do prazo de LIBERAÇÃO (dias corridos):
+  //   1) Tem estoque suficiente   → 0 dias
+  //   2) Estoque + WIP cobrem      → dias corridos até a data prevista da
+  //      última OP necessária para cobrir a falta
+  //   3) Falta produzir do zero    → lead_time_dias do SKU (dias corridos)
   if (qtd <= disponivel) {
     consumo_estoque = qtd;
     fonte = "estoque";
-    prazo_dias = PARAMS.logisticaDiasUteis + PARAMS.bufferDiasUteis;
+    prazo_dias = 0;
   } else {
     consumo_estoque = disponivel;
     const falta = qtd - disponivel;
@@ -150,7 +192,9 @@ export function calcularItem(
       consumo_wip = falta;
       // pega a data da OP que cobre o último item necessário
       let acumulado = 0;
-      let dataWip = wipOps.length ? new Date(wipOps[wipOps.length - 1].data_prevista) : new Date();
+      let dataWip = wipOps.length
+        ? new Date(wipOps[wipOps.length - 1].data_prevista)
+        : new Date();
       for (const op of wipOps) {
         acumulado += op.qtd;
         if (acumulado >= falta) {
@@ -159,9 +203,9 @@ export function calcularItem(
         }
       }
       const hoje = new Date();
-      const dias = diasUteisEntre(hoje, dataWip);
+      const dias = diasCorridosEntre(hoje, dataWip);
       fonte = "wip";
-      prazo_dias = dias + PARAMS.logisticaDiasUteis + PARAMS.bufferDiasUteis;
+      prazo_dias = dias;
     } else {
       consumo_wip = wipTotal;
       consumo_producao_zero = falta - wipTotal;
@@ -170,10 +214,7 @@ export function calcularItem(
         // Sem lead time definido pelo PCP → não dá pra prometer prazo
         prazo_dias = -1; // sentinela: substituído por null no retorno
       } else {
-        prazo_dias =
-          skuFull.lead_time_dias +
-          PARAMS.logisticaDiasUteis +
-          PARAMS.bufferDiasUteis;
+        prazo_dias = skuFull.lead_time_dias;
       }
     }
   }
@@ -205,7 +246,8 @@ export function calcularOportunidade(
   skus: SKUFull[],
   carteiraReservada: Record<string, number>,
   wipPorSku: Record<string, WIPDisponivel[]>,
-  aliasMap?: Map<string, Alias>
+  aliasMap?: Map<string, Alias>,
+  uf?: string | null
 ): ResultadoOportunidade {
   const resultados = itens.map((it) =>
     calcularItem(it, skus, carteiraReservada, wipPorSku, aliasMap)
@@ -228,7 +270,7 @@ export function calcularOportunidade(
     ? Math.max(...prazos)
     : null;
   // Gargalo só é destacado quando UM ÚNICO item tem o maior prazo.
-  // Se houver empate no máximo (ex.: todos atendem em 8d), não destaca ninguém.
+  // Se houver empate no máximo (ex.: todos atendem em 0d), não destaca ninguém.
   let gargaloIdx: number | null = null;
   if (prazo != null) {
     const indicesNoMax: number[] = [];
@@ -243,9 +285,29 @@ export function calcularOportunidade(
     (s, it) => s + it.quantidade * (it.preco_unitario || 0),
     0
   );
+
+  // Prazo de ENTREGA = liberação (corridos) + 2 DIAS ÚTEIS (faturamento/
+  // expedição, pulando fim de semana) + transporte (corridos), tudo
+  // convertido em dias corridos no resultado final.
+  const diasTransporte = diasTransporteDoUF(uf);
+  let prazoEntrega: number | null = null;
+  if (prazo != null) {
+    const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
+    // 1) data em que a liberação fica pronta (dias corridos)
+    const dataLiberacao = somarDiasCorridos(hoje, prazo);
+    // 2) +2 dias úteis de faturamento/expedição (pulando sab/dom)
+    const dataEnvio = somarDiasUteis(dataLiberacao, FATURAMENTO_EXPEDICAO_DIAS);
+    // 3) +transporte em dias corridos (se UF reconhecida; senão pula essa etapa)
+    const dataEntrega = somarDiasCorridos(dataEnvio, diasTransporte ?? 0);
+    prazoEntrega = diasCorridosEntre(hoje, dataEntrega);
+  }
+
   return {
     itens: resultados,
     prazo_dias: prazo,
+    prazo_entrega_dias: prazoEntrega,
+    dias_transporte: diasTransporte,
     gargalo_idx: gargaloIdx,
     total_valor: totalValor,
   };

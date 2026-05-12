@@ -14,6 +14,7 @@ type Linha = {
   derivacao: string | null;
   quantidade: number;
   data_promessa: string | null;
+  prev_liberacao: string | null;
   status: string;
   sem_cadastro: boolean;
 };
@@ -21,7 +22,6 @@ type Linha = {
 export default async function CarteiraPage() {
   const ctx = await ensureAcesso("/carteira");
   const supabase = await createClient();
-  const perfil = { nome: ctx.nome, perfil: ctx.perfil };
 
   const { data: linhas } = await supabase
     .from("carteira_pedidos")

@@ -58,11 +58,22 @@ export async function firmarOportunidade(opp_id: string) {
   // Número de pedido único derivado do ID da oportunidade
   const numero_pedido = `PED-OPP-${opp_id.substring(0, 8).toUpperCase()}`;
 
-  // data_promessa = data_fechamento da oportunidade (o que o consultor combinou)
-  // se não houver, usa hoje
-  const dataPromessa = opp.data_fechamento
-    ? String(opp.data_fechamento).slice(0, 10)
-    : new Date().toISOString().slice(0, 10);
+  // data_promessa = hoje + prazo_negociado_dias (DIAS CORRIDOS).
+  // Se não houver prazo_negociado, usa data_fechamento; em último caso, hoje.
+  function addDiasCorridos(base: Date, dias: number): Date {
+    const d = new Date(base);
+    d.setDate(d.getDate() + Math.max(0, Math.round(dias)));
+    return d;
+  }
+  let dataPromessa: string;
+  if (opp.prazo_negociado_dias != null && Number(opp.prazo_negociado_dias) > 0) {
+    const dt = addDiasCorridos(new Date(), Number(opp.prazo_negociado_dias));
+    dataPromessa = dt.toISOString().slice(0, 10);
+  } else if (opp.data_fechamento) {
+    dataPromessa = String(opp.data_fechamento).slice(0, 10);
+  } else {
+    dataPromessa = new Date().toISOString().slice(0, 10);
+  }
 
   const linhas = itens.map((it) => {
     const m = matchSKU(
@@ -137,5 +148,28 @@ export async function reabrirOportunidade(opp_id: string) {
   revalidatePath("/dashboard");
   revalidatePath("/");
 
+  return { ok: true };
+}
+
+/**
+ * Atualiza o prazo de liberação negociado (em dias úteis) que o consultor
+ * combinou com o cliente. Esse valor é usado como data_promessa quando a
+ * oportunidade é firmada.
+ */
+export async function salvarPrazoNegociado(
+  opp_id: string,
+  prazo_dias: number | null
+) {
+  const supabase = await createClient();
+  const valor =
+    prazo_dias == null || Number.isNaN(prazo_dias) || prazo_dias < 0
+      ? null
+      : Math.round(Number(prazo_dias));
+  const { error } = await supabase
+    .from("oportunidades")
+    .update({ prazo_negociado_dias: valor })
+    .eq("id", opp_id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/oportunidades/${opp_id}`);
   return { ok: true };
 }
