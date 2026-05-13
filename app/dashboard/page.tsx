@@ -1,13 +1,21 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { ensureAcesso } from "@/lib/auth";
 import { obterFiltroOwners, normalizaOwner } from "@/lib/owner-filter";
 import { AppHeader } from "../components/AppHeader";
 import {
   calcularOportunidade,
+  somarDiasCorridos,
+  somarDiasUteis,
   type SKUFull,
   type WIPDisponivel,
 } from "@/lib/prazo";
 import { indexarAliases, type Alias } from "@/lib/match";
+import {
+  diasTransporteDoUF,
+  FATURAMENTO_EXPEDICAO_DIAS,
+} from "@/lib/transporte";
+import { TabelaFechadas, type LinhaFechada } from "./TabelaFechadas";
 
 export const dynamic = "force-dynamic";
 
@@ -196,6 +204,38 @@ export default async function DashboardPage() {
     })
     .filter((x): x is ResumoFechada => x !== null)
     .sort((a, b) => b.data_firmada.localeCompare(a.data_firmada));
+
+  // Calcula "Prazo de entrega acordado" = data_promessa (liberação)
+  //   + FATURAMENTO_EXPEDICAO_DIAS dias úteis
+  //   + transporte do UF (dias corridos)
+  // Se UF não estiver mapeado, retorna null (mostra "—").
+  const fechadasParaTabela: LinhaFechada[] = fechadasDetalhe.map((f) => {
+    let prazoEntregaIso: string | null = null;
+    if (f.data_promessa) {
+      const transporte = diasTransporteDoUF(f.opp.regiao);
+      const baseLiberacao = new Date(f.data_promessa);
+      const aposFaturamento = somarDiasUteis(
+        baseLiberacao,
+        FATURAMENTO_EXPEDICAO_DIAS
+      );
+      const dataFinal =
+        transporte != null
+          ? somarDiasCorridos(aposFaturamento, transporte)
+          : aposFaturamento;
+      prazoEntregaIso = dataFinal.toISOString().slice(0, 10);
+    }
+    return {
+      opp_id: f.opp.id,
+      numero_pedido: f.numero_pedido,
+      cliente: f.opp.cliente,
+      nome_oportunidade: f.opp.nome,
+      valor: f.opp.valor || 0,
+      qtd_itens: f.qtd_itens,
+      qtd_unidades: f.qtd_unidades,
+      prazo_entrega_data: prazoEntregaIso,
+      owner: f.opp.owner || "",
+    };
+  });
 
   const valorPorRegiao: Record<string, number> = {};
   oppsAbertas.forEach((o) => {
@@ -451,66 +491,7 @@ export default async function DashboardPage() {
                 oportunidade.
               </div>
             ) : (
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 text-xs uppercase text-[#706F6F]">
-                  <tr>
-                    <th className="text-left py-2 px-4 font-semibold">
-                      Pedido
-                    </th>
-                    <th className="text-left py-2 px-4 font-semibold">
-                      Cliente / Oportunidade
-                    </th>
-                    <th className="text-right py-2 px-4 font-semibold">
-                      Valor
-                    </th>
-                    <th className="text-right py-2 px-4 font-semibold">
-                      Itens
-                    </th>
-                    <th className="text-right py-2 px-4 font-semibold">
-                      Promessa
-                    </th>
-                    <th className="text-left py-2 px-4 font-semibold">Owner</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {fechadasDetalhe.slice(0, 20).map((f) => (
-                    <tr key={f.opp.id} className="hover:bg-slate-50">
-                      <td className="py-2 px-4 font-mono text-xs text-[#1F2C4E]">
-                        {f.numero_pedido}
-                      </td>
-                      <td className="py-2 px-4">
-                        <div className="font-semibold text-[#1F2C4E]">
-                          {f.opp.cliente}
-                        </div>
-                        <div className="text-xs text-[#706F6F]">
-                          {f.opp.nome}
-                        </div>
-                      </td>
-                      <td className="py-2 px-4 text-right font-bold text-emerald-700">
-                        {fmtMoney(f.opp.valor || 0)}
-                      </td>
-                      <td className="py-2 px-4 text-right text-sm">
-                        <span className="text-[#1F2C4E] font-semibold">
-                          {f.qtd_itens}
-                        </span>
-                        <span className="text-xs text-[#706F6F] ml-1">
-                          ({f.qtd_unidades} un)
-                        </span>
-                      </td>
-                      <td className="py-2 px-4 text-right text-xs text-[#706F6F]">
-                        {f.data_promessa
-                          ? new Date(f.data_promessa).toLocaleDateString(
-                              "pt-BR"
-                            )
-                          : "—"}
-                      </td>
-                      <td className="py-2 px-4 text-xs text-[#706F6F]">
-                        {f.opp.owner || "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <TabelaFechadas linhas={fechadasParaTabela} />
             )}
             {fechadasDetalhe.length > 20 && (
               <div className="px-5 py-2 text-xs text-[#706F6F] border-t border-slate-100 bg-slate-50">
@@ -526,24 +507,28 @@ export default async function DashboardPage() {
               valor={skusSemLeadTime}
               cor="#FFA300"
               dica="PCP precisa preencher"
+              href="/estoque?filtro=sem_lead_time"
             />
             <Alerta
               titulo="OPs aguardando data"
               valor={wipAguardandoData}
               cor="#FFA300"
               dica="PCP precisa preencher"
+              href="/wip?filtro=aguardando"
             />
             <Alerta
               titulo="OPs atrasadas"
               valor={wipAtrasado}
               cor="#E24B4A"
               dica="Repactuar com produção"
+              href="/wip?filtro=atrasada"
             />
             <Alerta
               titulo="Itens órfãos"
               valor={orfaos}
               cor="#E24B4A"
               dica="Sem alias / cadastro"
+              href="/admin/orfaos"
             />
           </div>
 
@@ -652,22 +637,17 @@ function Alerta({
   valor,
   cor,
   dica,
+  href,
 }: {
   titulo: string;
   valor: number;
   cor: string;
   dica: string;
+  href?: string;
 }) {
   const isZero = valor === 0;
-  return (
-    <div
-      className="rounded-xl border p-4"
-      style={
-        isZero
-          ? { background: "#F2F2F2", borderColor: "#D5D5D5" }
-          : { background: `${cor}15`, borderColor: `${cor}40` }
-      }
-    >
+  const interno = (
+    <>
       <div
         className="text-xs uppercase tracking-wider font-semibold"
         style={{ color: isZero ? "#706F6F" : cor }}
@@ -680,7 +660,39 @@ function Alerta({
       >
         {valor}
       </div>
-      <div className="text-xs text-[#706F6F] mt-1">{isZero ? "ok" : dica}</div>
+      <div className="text-xs text-[#706F6F] mt-1 flex items-center gap-1">
+        {isZero ? "ok" : dica}
+        {href && !isZero && (
+          <span
+            className="ml-auto text-[10px] uppercase tracking-wider font-semibold"
+            style={{ color: cor }}
+          >
+            abrir →
+          </span>
+        )}
+      </div>
+    </>
+  );
+
+  const estilo = isZero
+    ? { background: "#F2F2F2", borderColor: "#D5D5D5" }
+    : { background: `${cor}15`, borderColor: `${cor}40` };
+
+  if (href && !isZero) {
+    return (
+      <Link
+        href={href}
+        className="rounded-xl border p-4 block transition-all hover:shadow-md hover:-translate-y-0.5 cursor-pointer"
+        style={estilo}
+        title="Clique para abrir a lista filtrada"
+      >
+        {interno}
+      </Link>
+    );
+  }
+  return (
+    <div className="rounded-xl border p-4" style={estilo}>
+      {interno}
     </div>
   );
 }

@@ -3,6 +3,8 @@ import { ensureAcesso } from "@/lib/auth";
 import { AppHeader } from "../components/AppHeader";
 import { ImportarPedidos } from "./ImportarPedidos";
 import { ListaCarteira } from "./ListaCarteira";
+import { BotaoLimparTudo } from "../admin/BotaoLimparTudo";
+import { limparCarteira } from "../admin/limpar-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +19,7 @@ type Linha = {
   prev_liberacao: string | null;
   status: string;
   sem_cadastro: boolean;
+  oportunidade_origem_id: string | null;
 };
 
 export default async function CarteiraPage() {
@@ -59,7 +62,16 @@ export default async function CarteiraPage() {
                 <b>Reduzem o estoque disponível</b> para novas negociações.
               </p>
             </div>
-            <ImportarPedidos />
+            <div className="flex items-center gap-2">
+              <ImportarPedidos />
+              {ctx.perfil === "admin" && lista.length > 0 && (
+                <BotaoLimparTudo
+                  label="carteira"
+                  descricaoAcao="todos os pedidos da carteira (importados via PDF e os firmados de oportunidades)"
+                  action={limparCarteira}
+                />
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">

@@ -5,6 +5,8 @@ import { obterFiltroOwners, normalizaOwner } from "@/lib/owner-filter";
 import { AppHeader } from "../components/AppHeader";
 import { ImportarOportunidades } from "./ImportarOportunidades";
 import { ImportarPdfOportunidade } from "./ImportarPdfOportunidade";
+import { BotaoLimparTudo } from "../admin/BotaoLimparTudo";
+import { limparOportunidades } from "../admin/limpar-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -115,6 +117,13 @@ export default async function OportunidadesPage() {
               </a>
               <ImportarPdfOportunidade skus={(skusData || []) as { id: string; codigo: string; descricao: string }[]} aliases={(aliasesData || []) as { descricao_alias: string; sku_codigo: string; derivacao: string | null }[]} />
               {ctx.perfil === "admin" && <ImportarOportunidades qtdAtual={lista.length} />}
+              {ctx.perfil === "admin" && lista.length > 0 && (
+                <BotaoLimparTudo
+                  label="oportunidades"
+                  descricaoAcao="todas as oportunidades, seus itens e os pedidos firmados"
+                  action={limparOportunidades}
+                />
+              )}
             </div>
           </div>
 

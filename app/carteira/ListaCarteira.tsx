@@ -3,6 +3,7 @@
 import { Fragment, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
+  apagarPedido,
   atualizarPrevLiberacaoLinha,
   atualizarPrevLiberacaoPedido,
 } from "./actions";
@@ -18,6 +19,7 @@ type LinhaCarteira = {
   prev_liberacao: string | null;
   status: string;
   sem_cadastro: boolean;
+  oportunidade_origem_id: string | null;
 };
 
 type Pedido = {
@@ -29,6 +31,7 @@ type Pedido = {
   prevLiberacaoAgg: string | null; // mais distante entre os itens
   semCadastro: number;
   statusAgregado: string;
+  veioDeOportunidade: boolean; // se alguma linha tem oportunidade_origem_id
 };
 
 type Props = {
@@ -48,11 +51,13 @@ function agrupar(linhas: LinhaCarteira[]): Pedido[] {
         prevLiberacaoAgg: l.prev_liberacao,
         semCadastro: 0,
         statusAgregado: l.status,
+        veioDeOportunidade: false,
       };
     }
     const p = mapa[l.numero_pedido];
     p.itens.push(l);
     p.totalUnidades += l.quantidade;
+    if (l.oportunidade_origem_id) p.veioDeOportunidade = true;
     if (l.sem_cadastro) p.semCadastro++;
     if (l.data_promessa) {
       if (
@@ -132,6 +137,21 @@ export function ListaCarteira({ linhas }: Props) {
     });
   }
 
+  function excluirPedido(numero_pedido: string, cliente: string) {
+    const ok = window.confirm(
+      `Tem certeza que deseja excluir o pedido PED-${numero_pedido} (${cliente})?\n\nEssa ação não pode ser desfeita.`
+    );
+    if (!ok) return;
+    startTransition(async () => {
+      const res = await apagarPedido(numero_pedido);
+      if (!res.ok) {
+        window.alert(res.error || "Erro ao excluir pedido");
+        return;
+      }
+      router.refresh();
+    });
+  }
+
   return (
     <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
       <table className="w-full text-sm">
@@ -146,6 +166,7 @@ export function ListaCarteira({ linhas }: Props) {
             </th>
             <th className="text-left py-3 px-4 font-semibold">Prazo limite</th>
             <th className="text-left py-3 px-4 font-semibold">Status</th>
+            <th className="w-12"></th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
@@ -227,6 +248,29 @@ export function ListaCarteira({ linhas }: Props) {
                   >
                     {statusBadge(p.statusAgregado)}
                   </td>
+                  <td className="py-3 px-2 text-center">
+                    {p.veioDeOportunidade ? (
+                      <span
+                        className="text-[10px] text-slate-400 cursor-help"
+                        title="Pedido vindo de oportunidade firmada — reabra a oportunidade pra remover."
+                      >
+                        🔒
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          excluirPedido(p.numero, p.cliente);
+                        }}
+                        disabled={isPending}
+                        className="text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded px-2 py-1 text-xs font-semibold disabled:opacity-50"
+                        title="Excluir pedido da carteira"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </td>
                 </tr>
                 {aberto &&
                   p.itens.map((it: LinhaCarteira) => {
@@ -286,6 +330,7 @@ export function ListaCarteira({ linhas }: Props) {
                         <td className="py-1.5 px-4">
                           {statusBadge(it.status)}
                         </td>
+                        <td className="py-1.5 px-2"></td>
                       </tr>
                     );
                   })}

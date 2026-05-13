@@ -69,6 +69,12 @@ export function NovaOportunidadeForm({
   const [itens, setItens] = useState<Item[]>([itemVazio()]);
   const formRef = useRef<HTMLFormElement>(null);
   const [importBanner, setImportBanner] = useState<string | null>(null);
+  // Owner controlado: começa com o usuário logado, mas pode ser sobrescrito
+  // pelo dado importado do PDF (mesmo que esse owner não esteja na lista
+  // padrão de owners do usuário logado — caso comum quando outro consultor
+  // assina a proposta mas outro usuário sobe o PDF).
+  const [ownerSelecionado, setOwnerSelecionado] = useState<string>(ownerPadrao);
+  const [ownerExtra, setOwnerExtra] = useState<string | null>(null);
 
   // Se houver dados importados do PDF no localStorage, preenche o formulário
   useEffect(() => {
@@ -92,11 +98,15 @@ export function NovaOportunidadeForm({
         if (dados.cliente) setVal("cliente", dados.cliente);
         if (dados.nome) setVal("nome", dados.nome);
         if (dados.owner) {
-          // só preenche se o owner está dentre as opções
+          // Owner do PDF vence SEMPRE — mesmo que não esteja na lista
+          // padrão do usuário logado (ex.: outro consultor assina a proposta
+          // mas outro usuário sobe o PDF). Se não estiver na lista,
+          // adicionamos como opção extra no select.
           const ownersDisponiveis = owners.map((o) => o.nome);
-          if (ownersDisponiveis.includes(dados.owner)) {
-            setVal("owner", dados.owner);
+          if (!ownersDisponiveis.includes(dados.owner)) {
+            setOwnerExtra(dados.owner);
           }
+          setOwnerSelecionado(dados.owner);
         }
         if (dados.regiao) setVal("regiao", dados.regiao);
         if (dados.valor != null && dados.valor > 0) {
@@ -246,9 +256,15 @@ export function NovaOportunidadeForm({
               <select
                 name="owner"
                 required
-                defaultValue={ownerPadrao}
+                value={ownerSelecionado}
+                onChange={(e) => setOwnerSelecionado(e.target.value)}
                 className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#64C3D1] focus:bg-white"
               >
+                {ownerExtra && !owners.some((o) => o.nome === ownerExtra) && (
+                  <option key={ownerExtra} value={ownerExtra}>
+                    {ownerExtra} (extraído do PDF)
+                  </option>
+                )}
                 {owners.map((o) => (
                   <option key={o.nome} value={o.nome}>
                     {o.nome}{" "}
@@ -425,27 +441,26 @@ export function NovaOportunidadeForm({
               ))}
             </tbody>
           </table>
+
+          <button
+            type="button"
+            onClick={adicionarItem}
+            className="mt-4 text-xs uppercase tracking-wider font-semibold text-[#1F2C4E] hover:text-[#326A84] border border-slate-200 hover:border-[#64C3D1] rounded-lg px-3 py-2"
+          >
+            + Adicionar item
+          </button>
         </section>
 
-        {erro && (
-          <div className="bg-rose-50 border border-rose-200 text-rose-800 rounded-xl px-4 py-2 text-sm">
-            {erro}
-          </div>
-        )}
-
-        <div className="flex justify-end gap-2">
-          <a
-            href="/oportunidades"
-            className="text-xs uppercase tracking-wider font-semibold text-[#706F6F] hover:text-[#1F2C4E] px-4 py-3 rounded-lg hover:bg-slate-100"
-          >
-            Cancelar
-          </a>
+        <div className="flex items-center justify-end gap-3 mt-6">
+          {erro && (
+            <span className="text-xs text-rose-700 flex-1">{erro}</span>
+          )}
           <button
             type="submit"
             disabled={isPending}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold uppercase tracking-wide text-sm px-6 py-3 rounded-xl disabled:opacity-50"
+            className="bg-[#1F2C4E] hover:bg-[#326A84] text-white font-semibold uppercase tracking-wider text-xs px-5 py-2.5 rounded-lg disabled:opacity-50"
           >
-            {isPending ? "Criando…" : "Criar oportunidade"}
+            {isPending ? "Salvando…" : "Salvar oportunidade"}
           </button>
         </div>
       </form>

@@ -93,203 +93,266 @@ function parseDataPT(s: string): string | null {
 }
 
 function extrairCampos(texto: string, skusCadastrados: SKUCadastro[] = []): DadosExtraidos {
-  const linhas = texto
+  const textoBruto = texto;
+
+  // Normaliza pra trabalhar num único fluxo (colapsa espaços/quebras)
+  const t = texto.replace(/\s+/g, " ").trim();
+
+  function norm(s: string) {
+    return s
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "");
+  }
+
+  // -- 1) Cliente: estratégia em três etapas.
+  //   a) Linha bruta que tem "CNPJ:" — pega o que vem antes.
+  //   b) Linha bruta que tem texto + cargo na mesma linha:
+  //      pega o que vem antes do cargo.
+  //   c) Linha bruta com APENAS o cargo (sem texto antes):
+  //      pega a LINHA ANTERIOR como cliente (caso de 2 quadros).
+  //   Cargo aceita variantes: "Supervisor Regional", "Diretor Comercial",
+  //   "Consultora de Pré Vendas", "Gerente Nacional", etc.
+  let cliente = "";
+  const linhasBrutas = texto
     .split("\n")
     .map((l) => l.trim())
     .filter((l) => l.length > 0);
 
-  let valor = 0;
-  const mValor = texto.match(/INVESTIMENTO[:\s]*R\$\s*([\d.]+,\d{2})/i);
-  if (mValor) valor = parseValorBR(mValor[1]);
+  // Cargo: prefixo (Supervisor/Diretor/...) + opcional "de " + 1-4 palavras
+  const cargoSufixo =
+    "(?:Supervisor|Supervisora|Diretor|Diretora|Gerente|Coordenador|Coordenadora|Vendedor|Vendedora|Consultor|Consultora|Representante)" +
+    "(?:\\s+de)?" +
+    "(?:\\s+[A-ZÁÉÍÓÚÃÕÇÊÔÂ][\\wáéíóúãõçêôâ]*){1,4}";
+  const reCargoCompleto = new RegExp("^(.+?)\\s+" + cargoSufixo + "$");
+  const reCargoSozinho = new RegExp("^" + cargoSufixo + "$");
 
-  let data_fechamento: string | null = null;
-  const mData = texto.match(/(\w+-feira|[A-Za-zçÇ]+),?\s+([a-zA-Zç]+)\s+(\d{1,2}),\s+(\d{4})/);
-  if (mData) {
-    data_fechamento = parseDataPT(`${mData[2]} ${mData[3]}, ${mData[4]}`);
-  }
-
-  let cliente = "";
-  let owner = "";
-
-  // Estratégia 1: cliente aparece na linha onde também tem "Supervisor/Diretor/
-  // Comercial/Gerente/Representante" (cargo do owner Confiance ao lado).
-  // Ex: "MOGAMI Supervisora Comercial São Paulo" → MOGAMI
-  for (const l of linhas) {
+  // a) Procura CNPJ primeiro
+  for (const l of linhasBrutas) {
     const m = l.match(
-      /^([A-ZÁÉÍÓÚÃÕÇÂÊÔ&][A-ZÁÉÍÓÚÃÕÇÂÊÔ&\s\d\.\-]{1,40}?)\s+(Supervisor|Supervisora|Diretor|Diretora|Gerente|Comercial|Representante|Coordenador|Coordenadora|Vendedor|Vendedora|Consultor|Consultora)\b/
+      /^([A-ZÁÉÍÓÚÃÕÇÊÔÂ][A-ZÁÉÍÓÚÃÕÇÊÔÂ0-9 .'\-&/]{2,80}?)\s*-?\s*CNPJ\s*:/
     );
-    if (m && !/CONFIANCE|MEDICAL|PROPOSTA|PRODUTOS/i.test(m[1])) {
-      cliente = m[1].trim();
+    if (m) {
+      cliente = m[1].trim().replace(/[\s\-]+$/, "");
       break;
     }
   }
 
-  // Estratégia 2 (fallback): pegar de email não-confiance, derivar do domínio.
-  // Ex: marcia@mogamibrasil.com → MOGAMI
+  // b) Linha com texto + cargo na mesma linha
   if (!cliente) {
-    const mEmail = texto.match(/([\w\.-]+)@(?!confiancemedical)([a-zA-Z0-9-]+)\./);
-    if (mEmail) {
-      const dominio = mEmail[2].toUpperCase();
-      // Remove sufixos comuns
-      cliente = dominio.replace(/BRASIL$|BR$|MED$|MEDICAL$|HOSP$/i, "");
-    }
-  }
-
-  // Estratégia 3 (fallback): linha tudo maiúscula após "PROPOSTA COMERCIAL"
-  if (!cliente) {
-    let idxProposta = -1;
-    for (let i = 0; i < linhas.length; i++) {
-      if (/PROPOSTA\s+COMERCIAL/i.test(linhas[i])) {
-        idxProposta = i;
+    for (const l of linhasBrutas) {
+      const m = l.match(reCargoCompleto);
+      if (m) {
+        cliente = m[1].trim().replace(/\s*-\s*CNPJ.*$/, "").trim();
         break;
       }
     }
-    if (idxProposta >= 0) {
-      for (let i = idxProposta + 1; i < Math.min(idxProposta + 25, linhas.length); i++) {
-        const l = linhas[i];
-        if (
-          /^[A-ZÁÉÍÓÚÃÕÇ\s\d\.\-&]{3,}$/.test(l) &&
-          !/PRODUTOS|FORMA|TERMOS|PROPOSTA|CONFIANCE|MEDICAL|REGISTRO|MARCA|FABRICANTE/.test(l) &&
-          l.length < 60
-        ) {
-          cliente = l;
+  }
+
+  // c) Cargo isolado em uma linha — usa a linha anterior como cliente
+  if (!cliente) {
+    for (let i = 0; i < linhasBrutas.length; i++) {
+      if (reCargoSozinho.test(linhasBrutas[i]) && i > 0) {
+        for (let j = i - 1; j >= 0; j--) {
+          const candidato = linhasBrutas[j];
+          if (candidato.length < 3) continue;
+          if (/^\d+$/.test(candidato)) continue;
+          // Pula só linhas que SEJAM "Confiance" ou "Confiance Medical"
+          // (header/rodapé), não linhas que CONTÊM "Medical" (ex.: "CR MEDICAL")
+          if (/^Confiance(\s+Medical)?$/i.test(candidato)) continue;
+          if (/confiancemedical/i.test(candidato)) continue;
+          // Pula linhas tipo "REGISTRO: ..." / "PROCEDÊNCIA: ..."
+          if (/^(REGISTRO|PROCED[ÊE]NCIA|MARCA|FABRICANTE|MODELO|ANVISA)\s*:/i.test(candidato)) continue;
+          // Pula linhas que parecem "MARCA: Confiance Medical FABRICANTE: ..." compridas
+          if (/MARCA:|FABRICANTE:|MODELO:|REGISTRO:|PROCED[ÊE]NCIA:/i.test(candidato)) continue;
+          cliente = candidato.replace(/\s*-\s*CNPJ.*$/, "").trim();
           break;
+        }
+        if (cliente) break;
+      }
+    }
+  }
+
+  // -- 2) Owner: derivado do email @confiancemedical.com.br.
+  //    user do email = primeira letra do nome + sobrenome (padrão Confiance).
+  //    Estratégia em camadas:
+  //      a) Match exato: pares "Nome Sobrenome" onde
+  //         primeira_letra(Nome) + Sobrenome === userEmail
+  //      b) Fallback: primeiro nome no texto cujo primeiro caractere bate
+  //         com a primeira letra do userEmail (cobre casos onde o sobrenome
+  //         do PDF não é o mesmo usado no email — ex.: nome de casada).
+  let owner = "";
+  const mEmail = t.match(/\b([a-zA-Z]+)@confiancemedical/);
+  if (mEmail) {
+    const userEmail = norm(mEmail[1]);
+    const tokens: string[] = [];
+    const reTok = /\b[A-ZÁÉÍÓÚÃÕÇÊÔÂ][a-záéíóúãõçêôâ]{2,}\b/g;
+    let mt: RegExpExecArray | null;
+    while ((mt = reTok.exec(t)) !== null) {
+      tokens.push(mt[0]);
+    }
+
+    // a) Match exato: inicial + sobrenome
+    for (let i = 0; i < tokens.length - 1; i++) {
+      const candidato = norm(tokens[i][0]) + norm(tokens[i + 1]);
+      if (candidato === userEmail) {
+        owner = `${tokens[i]} ${tokens[i + 1]}`;
+        break;
+      }
+    }
+
+    // b) Fallback: procura nas LINHAS BRUTAS por uma linha curta que
+    //    contenha SÓ um nome próprio "Nome Sobrenome" (até ~40 chars).
+    //    Vantagem sobre tokens: linhas curtas isoladas costumam ser
+    //    o nome do owner (em quadro próprio do PDF). Frases longas
+    //    como "OBS: Estão excluídos..." NÃO formam linha curta.
+    if (!owner) {
+      const inicial = userEmail[0];
+      const reLinhaNome =
+        /^([A-ZÁÉÍÓÚÃÕÇÊÔÂ][a-záéíóúãõçêôâ]{2,})\s+([A-ZÁÉÍÓÚÃÕÇÊÔÂ][a-záéíóúãõçêôâ]{2,})$/;
+      const tratamentos = new Set(["sr", "sra", "dr", "dra"]);
+      const cargosBlacklist = new Set([
+        "supervisor", "supervisora", "diretor", "diretora",
+        "gerente", "coordenador", "coordenadora",
+        "consultor", "consultora", "vendedor", "vendedora",
+        "representante",
+      ]);
+      for (const l of linhasBrutas) {
+        if (l.length > 40) continue;
+        // Tenta "Nome Sobrenome" sozinho
+        let m = l.match(reLinhaNome);
+        // Ou "Sr./Sra./Dr. Nome Sobrenome" (e remove o prefixo)
+        if (!m) {
+          const semPrefixo = l.replace(/^(Sr\.|Sra\.|Dr\.|Dra\.)\s*/i, "");
+          if (semPrefixo !== l) m = semPrefixo.match(reLinhaNome);
+        }
+        if (m) {
+          const nome = m[1];
+          const sobrenome = m[2];
+          if (tratamentos.has(norm(nome))) continue;
+          if (cargosBlacklist.has(norm(nome))) continue;
+          if (cargosBlacklist.has(norm(sobrenome))) continue;
+          if (norm(nome[0]) === inicial) {
+            owner = `${nome} ${sobrenome}`;
+            break;
+          }
         }
       }
     }
   }
 
-  for (let i = 0; i < linhas.length; i++) {
-    if (/@confiancemedical/i.test(linhas[i])) {
-      for (let j = i - 1; j >= Math.max(0, i - 5); j--) {
-        const l = linhas[j];
-        if (/^[A-ZÁÉÍÓÚÃÕÇ][a-záéíóúãõç]+(\s+[A-ZÁÉÍÓÚÃÕÇ][a-záéíóúãõç]+)+/.test(l)) {
-          owner = l;
-          break;
+  // Fallback final: nome próximo ao email confiance no texto bruto
+  if (!owner) {
+    const linhas = texto
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
+    for (let i = 0; i < linhas.length; i++) {
+      if (/@confiancemedical/i.test(linhas[i])) {
+        for (let j = i - 1; j >= Math.max(0, i - 5); j--) {
+          const l = linhas[j].replace(/^(Sr\.|Sra\.|Dr\.|Dra\.)\s*/i, "");
+          const m2 = l.match(
+            /([A-ZÁÉÍÓÚÃÕÇÊÔÂ][a-záéíóúãõçêôâ]+(\s+[A-ZÁÉÍÓÚÃÕÇÊÔÂ][a-záéíóúãõçêôâ]+)+)/
+          );
+          if (m2) {
+            const tks = m2[1].split(/\s+/);
+            owner = tks.slice(-2).join(" ");
+            break;
+          }
         }
+        if (owner) break;
       }
-      if (owner) break;
     }
   }
 
-  let regiao = "";
-  const mRegiao = texto.match(/Comercial\s+(São Paulo|SP|RJ|Rio de Janeiro|Norte|Nordeste|Sul|Centro-Oeste|Sudeste|Minas Gerais|MG|CE|Bahia|BA)/i);
-  if (mRegiao) {
-    const map: Record<string, string> = {
-      "são paulo": "SP",
-      sp: "SP",
-      rj: "RJ",
-      "rio de janeiro": "RJ",
-      mg: "MG",
-      "minas gerais": "MG",
-      ba: "BA",
-      bahia: "BA",
-      ce: "CE",
-      norte: "Norte & Nordeste",
-      nordeste: "Norte & Nordeste",
-      sul: "Sul",
-      sudeste: "Sudeste",
-      "centro-oeste": "Centro-Oeste",
-    };
-    regiao = map[mRegiao[1].toLowerCase()] || mRegiao[1];
+  // -- 3) Valor: detecta locação ou venda.
+  //    Locação: 2+ "NN Meses" no texto.
+  //      valor = min(durações) × max(mensais em range razoável)
+  //    Venda: pega ÚLTIMO "Investimento R$ X,YY".
+  //    Regex aceita "R$ R$" duplicado (erro tipográfico em algumas
+  //    propostas como "Investimento R$ R$6.965,00").
+  let valor = 0;
+  const duracoes: number[] = [];
+  const reDur = /\b(\d{2})\s+Meses\b/g;
+  let md: RegExpExecArray | null;
+  while ((md = reDur.exec(t)) !== null) {
+    const d = parseInt(md[1]);
+    if (d >= 6 && d <= 99) duracoes.push(d);
   }
 
-  const itens: ItemExtraido[] = [];
-  const textoFlat = linhas.join(" | ");
-  // Captura "Quantidade | N | seg1 [| seg2]".
-  // No PDF da Confiance, quando há SKU, ele fica isolado em seg1 e a
-  // descrição vem em seg2. Quando não há SKU, a descrição já vem em seg1.
-  const re = /Quantidade\s*\|\s*(\d+)\s*\|\s*([^|]+?)\s*(?:\|\s*([^|]+))?(?=\s*\||$)/g;
-  // Primeiro: identifica todas as posições dos itens pra depois pegar
-  // o "parágrafo descritivo" de cada um (texto entre item atual e próximo).
-  type MatchPos = {
-    qtd: number;
-    seg1: string;
-    seg2: string;
-    inicio: number;
-    fim: number;
+  // Detecta locação: precisa de pelo menos 1 "NN Meses" E (uma marca
+  // explícita de tabela de locação: "INVESTIMENTO MENSAL" ou "OPÇÃO" como
+  // header da tabela). Isso evita falso positivo em PDFs de venda que
+  // podem mencionar "60 dias" ou similar.
+  const temMarcaTabelaLoc =
+    /INVESTIMENTO\s+MENSAL/i.test(t) ||
+    /\bOP[ÇC][ÃA]O\b/.test(t);
+  const ehLocacao = duracoes.length >= 1 && temMarcaTabelaLoc;
+
+  if (ehLocacao) {
+    // Locação detectada — pode ter 1 ou mais opções
+    const todosValores: number[] = [];
+    const reVal = /R\$\s*([\d.]+,\d{2})/g;
+    let mv: RegExpExecArray | null;
+    while ((mv = reVal.exec(t)) !== null) {
+      const v = parseValorBR(mv[1]);
+      if (v >= 500 && v <= 1000000) todosValores.push(v);
+    }
+    if (todosValores.length > 0) {
+      const menorDuracao = Math.min(...duracoes);
+      const maiorMensal = Math.max(...todosValores);
+      valor = menorDuracao * maiorMensal;
+    }
+  } else {
+    // Venda — pega ÚLTIMO "Investimento (R$)+ X,YY"
+    const todosInvest = [
+      ...t.matchAll(/Investimento[:\s]*(?:R\$\s*)+([\d.]+,\d{2})/gi),
+    ];
+    if (todosInvest.length > 0) {
+      valor = parseValorBR(todosInvest[todosInvest.length - 1][1]);
+    }
+  }
+
+  // -- 4) Data: emissão BR + validade (dias corridos)
+  let data_fechamento: string | null = null;
+  const mesesPt: Record<string, number> = {
+    janeiro: 1, fevereiro: 2, "março": 3, marco: 3, abril: 4,
+    maio: 5, junho: 6, julho: 7, agosto: 8, setembro: 9,
+    outubro: 10, novembro: 11, dezembro: 12,
   };
-  const matches: MatchPos[] = [];
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(textoFlat)) !== null) {
-    matches.push({
-      qtd: Number(m[1]) || 1,
-      seg1: (m[2] || "").trim(),
-      seg2: (m[3] || "").trim(),
-      inicio: m.index,
-      fim: m.index + m[0].length,
-    });
+  const mDataBr = t.match(/\b(\d{1,2})\s+de\s+([a-zçãé]+)\s+de\s+(\d{4})\b/i);
+  if (mDataBr) {
+    const dia = parseInt(mDataBr[1]);
+    const mes = mesesPt[mDataBr[2].toLowerCase()];
+    const ano = parseInt(mDataBr[3]);
+    if (mes) {
+      const mVal = t.match(/Validade\s+da\s+Proposta[:\s]+(\d+)\s+dias/i);
+      const valDias = mVal ? parseInt(mVal[1]) : 0;
+      const dt = new Date(ano, mes - 1, dia);
+      dt.setDate(dt.getDate() + valDias);
+      data_fechamento = dt.toISOString().slice(0, 10);
+    }
   }
 
-  for (let i = 0; i < matches.length; i++) {
-    const cur = matches[i];
-    const prox = matches[i + 1];
-    const paragrafoDescritivo = textoFlat.slice(
-      cur.fim,
-      prox ? prox.inicio : textoFlat.length
-    );
+  // -- 5) Região: PCP preenche manual
+  const regiao = "";
 
-    let sku_codigo = "";
-    let derivacao = "";
-    let descricao = "";
-
-    const mSkuSolo = cur.seg1.match(/^([A-Z]{2,4}\d{3,5})(?:-(\d{2,3}))?$/);
-    if (mSkuSolo) {
-      sku_codigo = mSkuSolo[1];
-      derivacao = mSkuSolo[2] || "";
-      descricao = cur.seg2;
-    } else {
-      const mSkuInline = cur.seg1.match(/^([A-Z]{2,4}\d{3,5})(?:-(\d{2,3}))?\s+(.+)$/);
-      if (mSkuInline) {
-        sku_codigo = mSkuInline[1];
-        derivacao = mSkuInline[2] || "";
-        descricao = mSkuInline[3].trim();
-      } else {
-        descricao = cur.seg1;
-      }
-    }
-
-    // Se ainda não tem SKU, procura no parágrafo descritivo por TODOS os
-    // "(SKUNNNN-NNN)" presentes. Pode ter vários (produto principal +
-    // acessórios). Priorização:
-    //   1) SKU que existe no cadastro mestre (descarta códigos de acessórios
-    //      que não foram cadastrados)
-    //   2) SKU com derivação (ex: CAM0003-010) vence SKU sem derivação
-    //      (ex: EDR0007), porque produto principal costuma ter derivação
-    //   3) Primeiro encontrado como fallback
-    if (!sku_codigo) {
-      const todosMatches: Array<{ sku: string; deriv: string }> = [];
-      const reParagrafo = /\(([A-Z]{2,4}\d{3,5})(?:-(\d{2,3}))?\)/g;
-      let mP: RegExpExecArray | null;
-      while ((mP = reParagrafo.exec(paragrafoDescritivo)) !== null) {
-        todosMatches.push({ sku: mP[1], deriv: mP[2] || "" });
-      }
-      if (todosMatches.length > 0) {
-        const skusValidos = new Set(skusCadastrados.map((s) => s.codigo));
-        // Camada 1: SEMPRE prefere SKU com derivação (produto principal
-        // Confiance quase sempre tem derivação; acessórios mencionados no
-        // parágrafo costumam não ter).
-        const comDeriv = todosMatches.filter((x) => x.deriv);
-        const semDeriv = todosMatches.filter((x) => !x.deriv);
-        // Camada 2: entre os com derivação, se algum estiver no cadastro,
-        // prefere esse. Se nenhum, mantém qualquer com derivação.
-        let candidatos = comDeriv.length > 0 ? comDeriv : semDeriv;
-        const noCadastro = candidatos.filter((x) => skusValidos.has(x.sku));
-        if (noCadastro.length > 0) candidatos = noCadastro;
-        const escolhido = candidatos[0];
-        sku_codigo = escolhido.sku;
-        derivacao = escolhido.deriv;
-      }
-    }
-
-    descricao = descricao.slice(0, 200).trim();
-    if (!descricao && !sku_codigo) continue;
-    itens.push({
-      sku_codigo,
-      derivacao,
-      descricao,
-      quantidade: cur.qtd,
-    });
+  // -- 6) Itens: quebra em blocos por "Quantidade N XXX0000".
+  //    A descrição é puxada do CADASTRO MESTRE (skusCadastrados) usando
+  //    o código do SKU — muito mais robusto do que tentar extrair do
+  //    texto bagunçado do pdfjs, que separa título e quantidade em
+  //    regiões distantes do PDF.
+  const itens: ItemExtraido[] = [];
+  const reInicio = /Quantidade\s+(\d+)\s+([A-Z]{2,4}\d{3,5})\s*(?:-\s*(\d{2,3}))?/g;
+  let mb: RegExpExecArray | null;
+  while ((mb = reInicio.exec(t)) !== null) {
+    const quantidade = parseInt(mb[1]) || 1;
+    const sku_codigo = mb[2];
+    const derivacao = mb[3] || "";
+    // Descrição vem do cadastro mestre (mais confiável que o texto do PDF)
+    const skuCad = skusCadastrados.find((s) => s.codigo === sku_codigo);
+    const descricao = skuCad ? skuCad.descricao : "";
+    itens.push({ sku_codigo, derivacao, descricao, quantidade });
   }
 
   const nome = cliente ? `${cliente} - Proposta` : "Importada do PDF";
@@ -302,7 +365,7 @@ function extrairCampos(texto: string, skusCadastrados: SKUCadastro[] = []): Dado
     data_fechamento,
     regiao,
     itens,
-    textoBruto: texto,
+    textoBruto,
   };
 }
 
@@ -501,20 +564,31 @@ export function ImportarPdfOportunidade({ skus, aliases }: Props) {
                         manualmente.
                       </p>
                     ) : (
-                      <ul className="text-xs text-[#1F2C4E] space-y-1">
+                      <ul className="text-xs text-[#1F2C4E] space-y-1.5">
                         {dados.itens.map((it, i) => (
-                          <li key={i} className="flex gap-2">
-                            <span className="font-mono text-slate-500 w-6 text-right">
+                          <li
+                            key={i}
+                            className="flex items-baseline gap-2 py-1 border-b border-slate-200/60 last:border-b-0"
+                          >
+                            <span className="font-mono text-slate-500 w-8 text-right shrink-0">
                               {it.quantidade}x
                             </span>
-                            {it.sku_codigo && (
-                              <span className="font-mono text-slate-700">
+                            {it.sku_codigo ? (
+                              <span className="font-mono text-[11px] bg-slate-200/60 text-slate-700 px-1.5 py-0.5 rounded shrink-0">
                                 {it.sku_codigo}
                                 {it.derivacao ? "·" + it.derivacao : ""}
                               </span>
+                            ) : (
+                              <span className="font-mono text-[11px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded shrink-0">
+                                sem SKU
+                              </span>
                             )}
-                            <span className="flex-1 truncate">
-                              {it.descricao}
+                            <span className="flex-1 text-[#1F2C4E]">
+                              {it.descricao || (
+                                <span className="text-slate-400 italic">
+                                  sem descrição
+                                </span>
+                              )}
                             </span>
                           </li>
                         ))}

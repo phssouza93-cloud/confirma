@@ -84,6 +84,46 @@ export async function importarPedidos(pedidos: PedidoInput[]) {
     .select("id, codigo, descricao");
   const skus = (skusData || []) as SKUCadastro[];
 
+  // -- Preserva prev_liberacao já preenchida pelo PCP quando o pedido
+  //    estiver sendo reimportado (mesmo numero_pedido + sku + derivação).
+  //    Buscamos as linhas existentes desses pedidos, montamos um map por
+  //    chave e depois reaproveitamos o valor na inserção.
+  const numerosPedido = Array.from(
+    new Set(pedidos.map((p) => p.numero_pedido))
+  );
+  const prevLiberacaoExistente: Record<string, string | null> = {};
+  if (numerosPedido.length > 0) {
+    const { data: existentes } = await supabase
+      .from("carteira_pedidos")
+      .select(
+        "numero_pedido, sku_codigo, derivacao, prev_liberacao, oportunidade_origem_id"
+      )
+      .in("numero_pedido", numerosPedido);
+    (existentes || []).forEach(
+      (l: {
+        numero_pedido: string;
+        sku_codigo: string;
+        derivacao: string | null;
+        prev_liberacao: string | null;
+        oportunidade_origem_id: string | null;
+      }) => {
+        // Linhas de oportunidades firmadas NÃO são afetadas pela
+        // reimportação — pertencem ao fluxo de firmar opp.
+        if (l.oportunidade_origem_id) return;
+        const der = (l.derivacao || "").trim();
+        const chave = `${l.numero_pedido}::${l.sku_codigo}::${der}`;
+        if (l.prev_liberacao) prevLiberacaoExistente[chave] = l.prev_liberacao;
+      }
+    );
+    // Apaga linhas antigas (somente as SEM oportunidade_origem_id) pra
+    // evitar duplicatas no reimport. Linhas de firmar opp ficam intactas.
+    await supabase
+      .from("carteira_pedidos")
+      .delete()
+      .in("numero_pedido", numerosPedido)
+      .is("oportunidade_origem_id", null);
+  }
+
   // Constrói payload de linhas (uma linha por item de cada pedido)
   type Linha = {
     numero_pedido: string;
@@ -93,12 +133,14 @@ export async function importarPedidos(pedidos: PedidoInput[]) {
     derivacao: string | null;
     quantidade: number;
     data_promessa: string | null;
+    prev_liberacao: string | null;
     status: string;
     sem_cadastro: boolean;
   };
   const linhas: Linha[] = [];
   let reconhecidos = 0;
   let orfaos = 0;
+  let prevPreservadas = 0;
 
   for (const p of pedidos) {
     for (const it of p.itens) {
@@ -106,14 +148,21 @@ export async function importarPedidos(pedidos: PedidoInput[]) {
       const reconhecido = !!m.sku;
       if (reconhecido) reconhecidos++;
       else orfaos++;
+      const skuCodigoFinal =
+        reconhecido && m.sku ? m.sku.codigo : it.sku_codigo;
+      const der = (it.derivacao || "").trim();
+      const chave = `${p.numero_pedido}::${skuCodigoFinal}::${der}`;
+      const prev = prevLiberacaoExistente[chave] || null;
+      if (prev) prevPreservadas++;
       linhas.push({
         numero_pedido: p.numero_pedido,
         cliente: p.cliente,
-        sku_codigo: reconhecido && m.sku ? m.sku.codigo : it.sku_codigo,
+        sku_codigo: skuCodigoFinal,
         sku_id: m.sku?.id || null,
         derivacao: it.derivacao,
         quantidade: it.quantidade,
         data_promessa: p.data_promessa,
+        prev_liberacao: prev,
         status: "em_producao",
         sem_cadastro: !reconhecido,
       });
@@ -134,24 +183,47 @@ export async function importarPedidos(pedidos: PedidoInput[]) {
     linhas: linhas.length,
     reconhecidos,
     orfaos,
+    prev_liberacao_preservadas: prevPreservadas,
   };
 }
 
+/**
+ * Exclui um pedido inteiro (todas as linhas com aquele numero_pedido) da
+ * carteira. Só permite excluir pedidos que NÃO vieram de oportunidades
+ * firmadas — pra esses, o usuário precisa reabrir a oportunidade.
+ * Exclusão hard, sem auditoria/histórico.
+ */
 export async function apagarPedido(numeroPedido: string) {
+  if (!numeroPedido) return { ok: false, error: "Pedido inválido" };
   const supabase = await createClient();
+
+  const { data: comOrigem } = await supabase
+    .from("carteira_pedidos")
+    .select("id")
+    .eq("numero_pedido", numeroPedido)
+    .not("oportunidade_origem_id", "is", null)
+    .limit(1);
+  if (comOrigem && comOrigem.length > 0) {
+    return {
+      ok: false,
+      error:
+        "Esse pedido veio de uma oportunidade firmada. Reabra a oportunidade pra removê-lo da carteira.",
+    };
+  }
+
   const { error } = await supabase
     .from("carteira_pedidos")
     .delete()
     .eq("numero_pedido", numeroPedido);
   if (error) return { ok: false, error: error.message };
   revalidatePath("/carteira");
+  revalidatePath("/disponivel");
+  revalidatePath("/dashboard");
   return { ok: true };
 }
 
 /**
- * Atualiza a previsão de liberação de UM pedido inteiro (todas as linhas com
- * o mesmo numero_pedido). Editado pelo PCP na tela de Carteira.
- * Aceita string "YYYY-MM-DD" ou null pra limpar.
+ * Atualiza a previsão de liberação de UM pedido inteiro.
  */
 export async function atualizarPrevLiberacaoPedido(
   numero_pedido: string,
@@ -171,8 +243,7 @@ export async function atualizarPrevLiberacaoPedido(
 }
 
 /**
- * Atualiza prev_liberacao de UMA linha específica (caso PCP queira
- * granularidade por item dentro do pedido).
+ * Atualiza prev_liberacao de UMA linha específica.
  */
 export async function atualizarPrevLiberacaoLinha(
   linha_id: string,

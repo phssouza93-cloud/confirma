@@ -3,7 +3,9 @@ import { ensureAcesso } from "@/lib/auth";
 import { AppHeader } from "../components/AppHeader";
 import { ImportarEstoque } from "./ImportarEstoque";
 import { ImportarCadastroMestre } from "./ImportarCadastroMestre";
-import { LeadTimeInput } from "./LeadTimeInput";
+import { EstoqueClient, type LinhaEstoque } from "./EstoqueClient";
+import { BotaoLimparTudo } from "../admin/BotaoLimparTudo";
+import { limparEstoque } from "../admin/limpar-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +16,7 @@ type SKU = {
   familia: string | null;
   estoque: number;
   lead_time_dias: number | null;
+  eh_servico: boolean | null;
 };
 
 type Derivacao = {
@@ -43,6 +46,20 @@ export default async function EstoquePage() {
     derivPorSku[d.sku_id].push(d);
   });
 
+  const linhas: LinhaEstoque[] = lista.map((s) => ({
+    id: s.id,
+    codigo: s.codigo,
+    descricao: s.descricao,
+    familia: s.familia,
+    estoque: s.estoque || 0,
+    lead_time_dias: s.lead_time_dias,
+    eh_servico: !!s.eh_servico,
+    derivacoes: (derivPorSku[s.id] || []).map((d) => ({
+      derivacao: d.derivacao,
+      qtd_disponivel: d.qtd_disponivel,
+    })),
+  }));
+
   const totalUnidades = lista.reduce(
     (s: number, x: SKU) => s + (x.estoque || 0),
     0
@@ -51,6 +68,9 @@ export default async function EstoquePage() {
     lista.map((s: SKU) => s.familia).filter(Boolean)
   ).size;
   const skusComEstoque = lista.filter((s: SKU) => (s.estoque || 0) > 0).length;
+  const skusSemLeadTime = lista.filter(
+    (s: SKU) => !s.eh_servico && s.lead_time_dias == null
+  ).length;
 
   return (
     <>
@@ -77,11 +97,18 @@ export default async function EstoquePage() {
             <div className="flex gap-2">
               <ImportarCadastroMestre qtdAtual={lista.length} />
               <ImportarEstoque qtdAtual={totalUnidades} />
+              {ctx.perfil === "admin" && totalUnidades > 0 && (
+                <BotaoLimparTudo
+                  label="estoque"
+                  descricaoAcao="todas as posições de estoque (por derivação e agregado). O cadastro mestre de SKUs será preservado."
+                  action={limparEstoque}
+                />
+              )}
             </div>
           </div>
 
           {/* Indicadores */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
             <Card titulo="SKUs cadastrados" valor={String(lista.length)} cor="#1F2C4E" />
             <Card
               titulo="Com estoque"
@@ -93,7 +120,11 @@ export default async function EstoquePage() {
               valor={totalUnidades.toLocaleString("pt-BR")}
               cor="#1E9DBA"
             />
-            <Card titulo="Famílias" valor={String(familias)} cor="#64C3D1" />
+            <Card
+              titulo="Sem lead time"
+              valor={String(skusSemLeadTime)}
+              cor={skusSemLeadTime > 0 ? "#FFA300" : "#64C3D1"}
+            />
           </div>
 
           {/* Tabela / Empty state */}
@@ -113,85 +144,7 @@ export default async function EstoquePage() {
               </div>
             </div>
           ) : (
-            <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 text-xs uppercase text-[#706F6F]">
-                  <tr>
-                    <th className="text-left py-3 px-4 font-semibold">Código</th>
-                    <th className="text-left py-3 px-4 font-semibold">
-                      Descrição
-                    </th>
-                    <th className="text-left py-3 px-4 font-semibold">
-                      Família
-                    </th>
-                    <th className="text-right py-3 px-4 font-semibold">
-                      Estoque
-                    </th>
-                    <th className="text-left py-3 px-4 font-semibold">
-                      Derivações
-                    </th>
-                    <th className="text-right py-3 px-4 font-semibold">
-                      Lead time
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {lista.map((s: SKU) => {
-                    const derivs = (derivPorSku[s.id] || [])
-                      .filter((d) => d.qtd_disponivel > 0)
-                      .sort((a, b) =>
-                        (a.derivacao || "").localeCompare(b.derivacao || "")
-                      );
-                    // Só mostra pílulas quando há derivações REAIS (com código)
-                    // Se todas são null, não tem o que mostrar (o estoque já aparece na coluna ao lado)
-                    const derivsComCodigo = derivs.filter(
-                      (d) => d.derivacao && d.derivacao.trim() !== ""
-                    );
-                    return (
-                      <tr key={s.id} className="hover:bg-slate-50">
-                        <td className="py-2 px-4 font-mono text-xs text-[#1F2C4E]">
-                          {s.codigo}
-                        </td>
-                        <td className="py-2 px-4 text-sm">{s.descricao}</td>
-                        <td className="py-2 px-4 text-xs text-[#706F6F]">
-                          {s.familia || "—"}
-                        </td>
-                        <td className="py-2 px-4 text-right text-sm font-medium">
-                          {s.estoque || 0}
-                        </td>
-                        <td className="py-2 px-4">
-                          {derivsComCodigo.length === 0 ? (
-                            <span className="text-xs text-slate-400">—</span>
-                          ) : (
-                            <div className="flex flex-wrap gap-1">
-                              {derivsComCodigo.map((d, i) => (
-                                <span
-                                  key={i}
-                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-[#E6F9FC] text-[#1E9DBA] rounded text-xs"
-                                >
-                                  <span className="font-mono">
-                                    {d.derivacao}
-                                  </span>
-                                  <span className="font-semibold">
-                                    {d.qtd_disponivel}
-                                  </span>
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </td>
-                        <td className="py-2 px-4 text-right">
-                          <LeadTimeInput
-                            codigo={s.codigo}
-                            valorInicial={s.lead_time_dias}
-                          />
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <EstoqueClient linhas={linhas} />
           )}
         </div>
       </main>

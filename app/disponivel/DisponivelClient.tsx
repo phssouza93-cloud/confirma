@@ -11,6 +11,7 @@ export type LinhaDisp = {
   derivacao_label: string;
   estoque: number;
   carteira: number;
+  oport_firm: number;
   disponivel: number;
   wip_proxima_qtd: number | null;
   wip_proxima_data: string | null;
@@ -165,6 +166,12 @@ export function DisponivelClient({ linhas }: { linhas: LinhaDisp[] }) {
                 <th className="text-right py-2 px-2 font-semibold">Estoque</th>
                 <th className="text-right py-2 px-2 font-semibold">Carteira</th>
                 <th
+                  className="text-right py-2 px-2 font-semibold"
+                  title="Quantidade já reservada por oportunidades firmadas na feira"
+                >
+                  Oport. firm
+                </th>
+                <th
                   className="text-right py-2 px-3 font-semibold cursor-pointer hover:text-[#1F2C4E]"
                   onClick={() => toggleOrdem("disponivel")}
                 >
@@ -182,7 +189,7 @@ export function DisponivelClient({ linhas }: { linhas: LinhaDisp[] }) {
               {filtradas.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={9}
+                    colSpan={10}
                     className="py-10 text-center text-sm text-[#706F6F]"
                   >
                     Nenhuma linha bate com os filtros atuais.
@@ -225,6 +232,21 @@ export function DisponivelClient({ linhas }: { linhas: LinhaDisp[] }) {
                       </td>
                       <td
                         className={
+                          "py-2 px-2 text-right font-mono text-sm " +
+                          (l.oport_firm > 0
+                            ? "text-[#FFA300] font-semibold"
+                            : "text-[#706F6F]")
+                        }
+                        title={
+                          l.oport_firm > 0
+                            ? "Demanda originada de oportunidades firmadas na feira"
+                            : ""
+                        }
+                      >
+                        {l.oport_firm > 0 ? `−${l.oport_firm}` : "0"}
+                      </td>
+                      <td
+                        className={
                           "py-2 px-3 text-right font-mono text-base font-black " +
                           (l.eh_servico
                             ? "text-slate-400"
@@ -237,13 +259,25 @@ export function DisponivelClient({ linhas }: { linhas: LinhaDisp[] }) {
                       >
                         {l.eh_servico ? "—" : l.disponivel}
                       </td>
-                      <td className="py-2 px-3 text-xs">
+                      <td
+                        className="py-2 px-3 text-xs"
+                        title={
+                          l.wip_total > 0 && l.derivacao_label !== "—"
+                            ? "OPs em produção não controlam derivação. A reposição é do SKU em geral — pode chegar em qualquer derivação."
+                            : ""
+                        }
+                      >
                         {l.wip_total > 0 ? (
                           <div className="leading-tight">
                             <div className="font-semibold text-[#326A84]">
                               +{l.wip_proxima_qtd} em{" "}
                               {fmtData(l.wip_proxima_data)}
                             </div>
+                            {l.derivacao_label !== "—" && (
+                              <div className="text-[10px] text-[#706F6F] italic">
+                                geral do SKU
+                              </div>
+                            )}
                             {l.wip_total > (l.wip_proxima_qtd || 0) && (
                               <div className="text-[10px] text-[#706F6F]">
                                 Total previsto: {l.wip_total}

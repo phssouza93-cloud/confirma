@@ -77,13 +77,13 @@ function diasCorridosEntre(d1: Date, d2: Date): number {
   return Math.max(0, Math.round(ms / (1000 * 60 * 60 * 24)));
 }
 
-function somarDiasCorridos(base: Date, dias: number): Date {
+export function somarDiasCorridos(base: Date, dias: number): Date {
   const d = new Date(base);
   d.setDate(d.getDate() + Math.max(0, Math.round(dias)));
   return d;
 }
 
-function somarDiasUteis(base: Date, dias: number): Date {
+export function somarDiasUteis(base: Date, dias: number): Date {
   const d = new Date(base);
   let restantes = Math.max(0, Math.round(dias));
   while (restantes > 0) {

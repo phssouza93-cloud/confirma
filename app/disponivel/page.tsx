@@ -27,6 +27,7 @@ type CarteiraLinha = {
   derivacao: string | null;
   quantidade: number | null;
   status: string;
+  oportunidade_origem_id: string | null;
 };
 
 type WipLinha = {
@@ -56,7 +57,9 @@ export default async function DisponivelPage() {
       .select("sku_id, derivacao, qtd_disponivel"),
     supabase
       .from("carteira_pedidos")
-      .select("sku_codigo, derivacao, quantidade, status"),
+      .select(
+        "sku_codigo, derivacao, quantidade, status, oportunidade_origem_id"
+      ),
     supabase
       .from("wip")
       .select("sku_codigo, qtd_prevista, data_prevista"),
@@ -67,15 +70,21 @@ export default async function DisponivelPage() {
   const carteira = (carteiraData || []) as CarteiraLinha[];
   const wip = (wipData || []) as WipLinha[];
 
-  // -- 1) Carteira reservada por (sku_codigo + derivação normalizada)
-  // status === 'liberado' significa já entregue ao cliente, não conta
+  // -- 1) Demanda reservada por (sku_codigo + derivação normalizada)
+  // Separamos em duas fontes: carteira (PDFs importados) e oport. firmadas.
+  // status === 'liberado' significa já entregue ao cliente, não conta.
   const carteiraPorChave: Record<string, number> = {};
+  const oportFirmPorChave: Record<string, number> = {};
   carteira.forEach((l) => {
     if (l.status === "liberado") return;
     const der = formatarDerivacao(l.derivacao) || "";
     const chave = `${l.sku_codigo}::${der}`;
-    carteiraPorChave[chave] =
-      (carteiraPorChave[chave] || 0) + (Number(l.quantidade) || 0);
+    const qtd = Number(l.quantidade) || 0;
+    if (l.oportunidade_origem_id) {
+      oportFirmPorChave[chave] = (oportFirmPorChave[chave] || 0) + qtd;
+    } else {
+      carteiraPorChave[chave] = (carteiraPorChave[chave] || 0) + qtd;
+    }
   });
 
   // -- 2) Derivações disponíveis por SKU id (estoque físico)
@@ -120,13 +129,14 @@ export default async function DisponivelPage() {
     if (listDeriv.length === 0) {
       // SKU sem mix → uma única linha agregada
       const estoqueTotal = Number(s.estoque) || 0;
-      const carteiraChave = carteiraPorChave[`${s.codigo}::`] || 0;
-      // mas tem outras carteiras (com derivação) também? somar tudo
-      let carteiraTotal = carteiraChave;
+      // Soma TODAS as chaves do SKU (com e sem derivação) pra cada fonte
+      let carteiraTotal = 0;
+      let oportFirmTotal = 0;
       Object.entries(carteiraPorChave).forEach(([k, v]) => {
-        if (k.startsWith(`${s.codigo}::`) && k !== `${s.codigo}::`) {
-          carteiraTotal += v;
-        }
+        if (k.startsWith(`${s.codigo}::`)) carteiraTotal += v;
+      });
+      Object.entries(oportFirmPorChave).forEach(([k, v]) => {
+        if (k.startsWith(`${s.codigo}::`)) oportFirmTotal += v;
       });
       linhas.push({
         sku_id: s.id,
@@ -137,7 +147,8 @@ export default async function DisponivelPage() {
         derivacao_label: "—",
         estoque: estoqueTotal,
         carteira: carteiraTotal,
-        disponivel: estoqueTotal - carteiraTotal,
+        oport_firm: oportFirmTotal,
+        disponivel: estoqueTotal - carteiraTotal - oportFirmTotal,
         wip_proxima_qtd: wipResumo?.qtd_proxima ?? null,
         wip_proxima_data: wipResumo?.proxima_data ?? null,
         wip_total: wipResumo?.total ?? 0,
@@ -145,34 +156,41 @@ export default async function DisponivelPage() {
         eh_servico: !!s.eh_servico,
       });
     } else {
-      listDeriv
-        .slice()
-        .sort((a, b) =>
-          (a.derivacao || "").localeCompare(b.derivacao || "")
-        )
-        .forEach((d) => {
-          const derNormalizada = formatarDerivacao(d.derivacao) || "";
-          const carteiraTot =
-            carteiraPorChave[`${s.codigo}::${derNormalizada}`] || 0;
-          const estoque = Number(d.qtd_disponivel) || 0;
-          linhas.push({
-            sku_id: s.id,
-            codigo: s.codigo,
-            descricao: s.descricao,
-            familia: s.familia || "—",
-            derivacao: d.derivacao,
-            derivacao_label: derNormalizada || "—",
-            estoque,
-            carteira: carteiraTot,
-            disponivel: estoque - carteiraTot,
-            // WIP é por SKU código (não temos quebra fiel por derivação no WIP)
-            wip_proxima_qtd: wipResumo?.qtd_proxima ?? null,
-            wip_proxima_data: wipResumo?.proxima_data ?? null,
-            wip_total: wipResumo?.total ?? 0,
-            lead_time: s.lead_time_dias,
-            eh_servico: !!s.eh_servico,
-          });
+      // WIP é por SKU código, NÃO por derivação. Pra não duplicar a
+      // informação em cada linha de derivação (dando impressão errada de
+      // que tem +1 em CADA), mostramos o WIP apenas na PRIMEIRA derivação
+      // (ordenada alfabeticamente). É marcado como "geral do SKU" no client.
+      const listDerivOrdenada = listDeriv.slice().sort((a, b) =>
+        (a.derivacao || "").localeCompare(b.derivacao || "")
+      );
+      listDerivOrdenada.forEach((d, idx) => {
+        const derNormalizada = formatarDerivacao(d.derivacao) || "";
+        const chave = `${s.codigo}::${derNormalizada}`;
+        const carteiraTot = carteiraPorChave[chave] || 0;
+        const oportFirmTot = oportFirmPorChave[chave] || 0;
+        const estoque = Number(d.qtd_disponivel) || 0;
+        const ehPrimeiraDeriv = idx === 0;
+        linhas.push({
+          sku_id: s.id,
+          codigo: s.codigo,
+          descricao: s.descricao,
+          familia: s.familia || "—",
+          derivacao: d.derivacao,
+          derivacao_label: derNormalizada || "—",
+          estoque,
+          carteira: carteiraTot,
+          oport_firm: oportFirmTot,
+          disponivel: estoque - carteiraTot - oportFirmTot,
+          // WIP só na primeira derivação (é total do SKU, não por derivação)
+          wip_proxima_qtd:
+            ehPrimeiraDeriv ? wipResumo?.qtd_proxima ?? null : null,
+          wip_proxima_data:
+            ehPrimeiraDeriv ? wipResumo?.proxima_data ?? null : null,
+          wip_total: ehPrimeiraDeriv ? wipResumo?.total ?? 0 : 0,
+          lead_time: s.lead_time_dias,
+          eh_servico: !!s.eh_servico,
         });
+      });
     }
   });
 
@@ -205,8 +223,8 @@ export default async function DisponivelPage() {
               Estoque Disponível
             </h1>
             <p className="text-sm text-[#706F6F] mt-1 max-w-2xl">
-              <b>Estoque − Carteira = Disponível</b>. O que o consultor pode
-              prometer agora sem precisar produzir.
+              <b>Estoque − (Carteira + Oport. firm) = Disponível</b>. O que o
+              consultor pode prometer agora sem precisar produzir.
             </p>
           </div>
 

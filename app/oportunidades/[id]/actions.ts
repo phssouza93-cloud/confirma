@@ -2,12 +2,21 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createClient as createAdminClient } from "@supabase/supabase-js";
 import {
   matchSKU,
   indexarAliases,
   type Alias,
   type SKUCadastro,
 } from "@/lib/match";
+
+function getAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  return createAdminClient(url, key, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+}
 
 type Item = {
   id: string;
@@ -43,10 +52,19 @@ export async function firmarOportunidade(opp_id: string) {
   if (itens.length === 0)
     return { ok: false, error: "Oportunidade sem itens" };
 
-  // SKUs + aliases para fazer match e gravar sku_id correto
-  const [{ data: skusData }, { data: aliasesData }] = await Promise.all([
+  // SKUs + aliases + derivações disponíveis + carteira atual
+  // (precisamos das derivações pra alocar automaticamente quando o item da
+  // oportunidade vier sem derivação especificada)
+  const [
+    { data: skusData },
+    { data: aliasesData },
+    { data: derivData },
+    { data: carteiraData },
+  ] = await Promise.all([
     supabase.from("skus").select("id, codigo, descricao"),
     supabase.from("sku_aliases").select("descricao_alias, sku_codigo, derivacao"),
+    supabase.from("estoque_derivacoes").select("sku_id, derivacao, qtd_disponivel"),
+    supabase.from("carteira_pedidos").select("sku_codigo, derivacao, quantidade, status"),
   ]);
   const skus = (skusData || []) as SKUCadastro[];
   const aliasMap = indexarAliases((aliasesData || []) as Alias[]);
@@ -54,6 +72,62 @@ export async function firmarOportunidade(opp_id: string) {
   skus.forEach((s) => {
     skuPorCodigo[s.codigo] = { id: s.id, codigo: s.codigo };
   });
+
+  // Mapa de derivações disponíveis por SKU código
+  type DerivInfo = { derivacao: string | null; qtd: number };
+  const derivsPorCodigo: Record<string, DerivInfo[]> = {};
+  ((derivData || []) as Array<{
+    sku_id: string;
+    derivacao: string | null;
+    qtd_disponivel: number;
+  }>).forEach((d) => {
+    const codigo = skus.find((s) => s.id === d.sku_id)?.codigo;
+    if (!codigo) return;
+    if (!derivsPorCodigo[codigo]) derivsPorCodigo[codigo] = [];
+    derivsPorCodigo[codigo].push({
+      derivacao: d.derivacao,
+      qtd: Number(d.qtd_disponivel) || 0,
+    });
+  });
+
+  // Carteira já reservada por (sku, derivação) — pra calcular o disponível
+  // real e alocar a derivação com mais saldo
+  const carteiraReservadaPorChave: Record<string, number> = {};
+  ((carteiraData || []) as Array<{
+    sku_codigo: string;
+    derivacao: string | null;
+    quantidade: number;
+    status: string;
+  }>).forEach((l) => {
+    if (l.status === "liberado") return;
+    const der = (l.derivacao || "").trim();
+    const chave = `${l.sku_codigo}::${der}`;
+    carteiraReservadaPorChave[chave] =
+      (carteiraReservadaPorChave[chave] || 0) + (Number(l.quantidade) || 0);
+  });
+
+  function escolherDerivacao(
+    codigo: string,
+    qtdNecessaria: number
+  ): string | null {
+    const lista = derivsPorCodigo[codigo];
+    if (!lista || lista.length === 0) return null;
+    // Calcula disponível de cada derivação (estoque - carteira já reservada)
+    // e escolhe a que tiver MAIS disponível.
+    const comDisp = lista
+      .map((d) => {
+        const der = (d.derivacao || "").trim();
+        const reservada = carteiraReservadaPorChave[`${codigo}::${der}`] || 0;
+        return {
+          derivacao: d.derivacao,
+          disponivel: d.qtd - reservada,
+        };
+      })
+      .sort((a, b) => b.disponivel - a.disponivel);
+    // Pega a primeira (mais disponível), mesmo que negativa
+    const escolhida = comDisp[0];
+    return escolhida ? escolhida.derivacao : null;
+  }
 
   // Número de pedido único derivado do ID da oportunidade
   const numero_pedido = `PED-OPP-${opp_id.substring(0, 8).toUpperCase()}`;
@@ -83,8 +157,23 @@ export async function firmarOportunidade(opp_id: string) {
     );
     const codigoFinal = m.sku ? m.sku.codigo : it.sku_codigo;
     const skuId = m.sku ? skuPorCodigo[m.sku.codigo]?.id || null : null;
-    // derivacao: do alias se houver, senão do item
-    const derivacaoFinal = m.derivacao_sugerida ?? it.derivacao;
+
+    // Determina a derivação:
+    //  1) Se o alias sugeriu uma → usa
+    //  2) Se o item já tinha derivação → usa
+    //  3) Se nenhum dos dois MAS o SKU tem derivações cadastradas →
+    //     escolhe automaticamente a com mais saldo disponível
+    let derivacaoFinal = m.derivacao_sugerida ?? it.derivacao;
+    if (
+      (!derivacaoFinal || String(derivacaoFinal).trim() === "") &&
+      m.sku &&
+      derivsPorCodigo[m.sku.codigo] &&
+      derivsPorCodigo[m.sku.codigo].length > 0
+    ) {
+      const qtdNecessaria = Math.round(Number(it.quantidade) || 0);
+      derivacaoFinal = escolherDerivacao(m.sku.codigo, qtdNecessaria);
+    }
+
     return {
       numero_pedido,
       cliente: opp.cliente,
@@ -99,12 +188,18 @@ export async function firmarOportunidade(opp_id: string) {
     };
   });
 
-  const { error: errIns } = await supabase
+  // Usa service role pra inserir na carteira e atualizar a oportunidade —
+  // bypassa RLS, garante que consultor/gestor consigam firmar.
+  const admin = getAdmin();
+  const { data: linhasInseridas, error: errIns } = await admin
     .from("carteira_pedidos")
-    .insert(linhas);
+    .insert(linhas)
+    .select();
   if (errIns) return { ok: false, error: errIns.message };
+  if (!linhasInseridas || linhasInseridas.length === 0)
+    return { ok: false, error: "Nenhuma linha foi criada na carteira" };
 
-  const { error: errUp } = await supabase
+  const { error: errUp } = await admin
     .from("oportunidades")
     .update({ fase: "Fechado" })
     .eq("id", opp_id);
@@ -128,15 +223,15 @@ export async function firmarOportunidade(opp_id: string) {
  * e volta a fase para "Commit".
  */
 export async function reabrirOportunidade(opp_id: string) {
-  const supabase = await createClient();
+  const admin = getAdmin();
 
-  const { error: errDel } = await supabase
+  const { error: errDel } = await admin
     .from("carteira_pedidos")
     .delete()
     .eq("oportunidade_origem_id", opp_id);
   if (errDel) return { ok: false, error: errDel.message };
 
-  const { error: errUp } = await supabase
+  const { error: errUp } = await admin
     .from("oportunidades")
     .update({ fase: "Commit" })
     .eq("id", opp_id);
@@ -160,12 +255,12 @@ export async function salvarPrazoNegociado(
   opp_id: string,
   prazo_dias: number | null
 ) {
-  const supabase = await createClient();
+  const admin = getAdmin();
   const valor =
     prazo_dias == null || Number.isNaN(prazo_dias) || prazo_dias < 0
       ? null
       : Math.round(Number(prazo_dias));
-  const { error } = await supabase
+  const { error } = await admin
     .from("oportunidades")
     .update({ prazo_negociado_dias: valor })
     .eq("id", opp_id);

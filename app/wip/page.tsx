@@ -3,6 +3,8 @@ import { ensureAcesso } from "@/lib/auth";
 import { AppHeader } from "../components/AppHeader";
 import { ImportarWIP } from "./ImportarWIP";
 import { ListaWIP } from "./ListaWIP";
+import { BotaoLimparTudo } from "../admin/BotaoLimparTudo";
+import { limparWIP } from "../admin/limpar-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -73,12 +75,21 @@ export default async function WIPPage() {
                 upload são removidas.
               </p>
             </div>
-            <ImportarWIP
-              wipAtual={listaComStatus.map((o: OP) => ({
-                op_numero: o.op_numero,
-                data_prevista: o.data_prevista,
-              }))}
-            />
+            <div className="flex items-center gap-2">
+              <ImportarWIP
+                wipAtual={listaComStatus.map((o: OP) => ({
+                  op_numero: o.op_numero,
+                  data_prevista: o.data_prevista,
+                }))}
+              />
+              {ctx.perfil === "admin" && listaComStatus.length > 0 && (
+                <BotaoLimparTudo
+                  label="OPs em andamento"
+                  descricaoAcao="todas as OPs em andamento"
+                  action={limparWIP}
+                />
+              )}
+            </div>
           </div>
 
           {/* Cards de status */}

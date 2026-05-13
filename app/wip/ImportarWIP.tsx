@@ -25,7 +25,7 @@ type Diff = {
 
 export function ImportarWIP({ wipAtual }: Props) {
   const [etapa, setEtapa] = useState<Etapa>("fechado");
-  const [fileName, setFileName] = useState<string>("");
+  const [fileNames, setFileNames] = useState<string[]>([]);
   const [diff, setDiff] = useState<Diff | null>(null);
   const [novoUpload, setNovoUpload] = useState<OPInput[]>([]);
   const [erro, setErro] = useState<string | null>(null);
@@ -36,14 +36,14 @@ export function ImportarWIP({ wipAtual }: Props) {
     setErro(null);
     setDiff(null);
     setNovoUpload([]);
-    setFileName("");
+    setFileNames([]);
   }
   function fechar() {
     setEtapa("fechado");
     setErro(null);
     setDiff(null);
     setNovoUpload([]);
-    setFileName("");
+    setFileNames([]);
   }
 
   function calcularDiff(ops: OPInput[]): Diff {
@@ -67,54 +67,75 @@ export function ImportarWIP({ wipAtual }: Props) {
     return { mantidasComData, mantidasSemData, novas, removidas };
   }
 
-  function processarArquivo(file: File) {
-    setFileName(file.name);
-    setEtapa("processando");
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const data = new Uint8Array(e.target?.result as ArrayBuffer);
-        const wb = XLSX.read(data, { type: "array" });
-        const sheet = wb.Sheets[wb.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
-          defval: null,
-        });
-        const ops: OPInput[] = [];
-        rows.forEach((r) => {
-          const op = r["O.P./O.S."] ?? r["O.P."] ?? r["OP"] ?? r["Numero OP"];
-          const sku = r["Produto/Serviço"] ?? r["Produto"] ?? r["SKU"];
-          if (!op || !sku) return;
-          ops.push({
-            op_numero: String(op).trim(),
-            sku_codigo: String(sku).trim(),
-            derivacao: formatarDerivacao(
-              r["Derivação"] ?? r["Derivacao"] ?? null
-            ),
-            qtd_prevista: Number(
-              r["Qtde Prevista"] ?? r["Quantidade"] ?? r["Qtd"] ?? 1
-            ) || 1,
-          });
-        });
-        if (ops.length === 0) {
-          setErro(
-            "Não consegui identificar OPs. Colunas esperadas: O.P./O.S., Produto/Serviço, Derivação, Qtde Prevista."
+  function lerArquivo(file: File): Promise<OPInput[]> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = new Uint8Array(e.target?.result as ArrayBuffer);
+          const wb = XLSX.read(data, { type: "array" });
+          const sheet = wb.Sheets[wb.SheetNames[0]];
+          const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(
+            sheet,
+            { defval: null }
           );
-          setEtapa("upload");
-          return;
+          const ops: OPInput[] = [];
+          rows.forEach((r) => {
+            const op = r["O.P./O.S."] ?? r["O.P."] ?? r["OP"] ?? r["Numero OP"];
+            const sku = r["Produto/Serviço"] ?? r["Produto"] ?? r["SKU"];
+            if (!op || !sku) return;
+            ops.push({
+              op_numero: String(op).trim(),
+              sku_codigo: String(sku).trim(),
+              derivacao: formatarDerivacao(
+                r["Derivação"] ?? r["Derivacao"] ?? null
+              ),
+              qtd_prevista:
+                Number(r["Qtde Prevista"] ?? r["Quantidade"] ?? r["Qtd"] ?? 1) ||
+                1,
+            });
+          });
+          resolve(ops);
+        } catch (err) {
+          reject(err);
         }
-        const d = calcularDiff(ops);
-        setNovoUpload(ops);
-        setDiff(d);
-        setEtapa("preview");
-      } catch (err) {
+      };
+      reader.onerror = () => reject(new Error("Falha ao ler arquivo"));
+      reader.readAsArrayBuffer(file);
+    });
+  }
+
+  async function processarArquivos(files: File[]) {
+    setFileNames(files.map((f) => f.name));
+    setEtapa("processando");
+    setErro(null);
+    try {
+      // Lê todos os arquivos em paralelo e consolida as OPs
+      const listas = await Promise.all(files.map((f) => lerArquivo(f)));
+      // Dedup por op_numero (último wins se houver duplicata entre planilhas)
+      const mapa: Record<string, OPInput> = {};
+      listas.flat().forEach((op) => {
+        mapa[op.op_numero] = op;
+      });
+      const ops = Object.values(mapa);
+      if (ops.length === 0) {
         setErro(
-          "Erro ao ler a planilha: " +
-            (err instanceof Error ? err.message : String(err))
+          "Não consegui identificar OPs em nenhum dos arquivos. Colunas esperadas: O.P./O.S., Produto/Serviço, Derivação, Qtde Prevista."
         );
         setEtapa("upload");
+        return;
       }
-    };
-    reader.readAsArrayBuffer(file);
+      const d = calcularDiff(ops);
+      setNovoUpload(ops);
+      setDiff(d);
+      setEtapa("preview");
+    } catch (err) {
+      setErro(
+        "Erro ao ler planilha(s): " +
+          (err instanceof Error ? err.message : String(err))
+      );
+      setEtapa("upload");
+    }
   }
 
   function confirmar() {
@@ -177,18 +198,24 @@ export function ImportarWIP({ wipAtual }: Props) {
                   <input
                     type="file"
                     accept=".xlsx,.xls,.csv"
+                    multiple
                     className="hidden"
                     onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) processarArquivo(f);
+                      const fs = e.target.files;
+                      if (fs && fs.length > 0) {
+                        processarArquivos(Array.from(fs));
+                      }
                     }}
                   />
                   <div className="text-4xl text-slate-400 mb-2">↑</div>
                   <div className="font-medium text-[#1F2C4E]">
-                    Arraste a planilha ou clique para selecionar
+                    Arraste 1 ou mais planilhas ou clique para selecionar
                   </div>
                   <div className="text-xs text-[#706F6F] mt-1">
                     Colunas esperadas: O.P./O.S., Produto/Serviço, Derivação, Qtde Prevista
+                  </div>
+                  <div className="text-[10px] text-[#706F6F] mt-2 italic">
+                    Vários arquivos serão consolidados como um único upload (útil quando o ERP exporta em partes).
                   </div>
                 </label>
                 <div className="mt-4 bg-[#E6F9FC] border border-[#64C3D1]/40 rounded-lg p-3 text-xs text-[#1F2C4E]">
@@ -218,7 +245,11 @@ export function ImportarWIP({ wipAtual }: Props) {
               <div className="mt-4 font-medium text-[#1F2C4E]">
                 Comparando upload com base atual...
               </div>
-              <div className="text-xs text-[#706F6F] mt-1">{fileName}</div>
+              <div className="text-xs text-[#706F6F] mt-1">
+                {fileNames.length === 1
+                  ? fileNames[0]
+                  : `${fileNames.length} arquivos`}
+              </div>
             </div>
           )}
           {etapa === "preview" && diff && (
@@ -228,7 +259,11 @@ export function ImportarWIP({ wipAtual }: Props) {
                   <h2 className="text-lg font-bold text-[#1F2C4E] uppercase tracking-wide">
                     Pré-visualizar mudanças
                   </h2>
-                  <p className="text-xs text-[#706F6F] mt-0.5">{fileName}</p>
+                  <p className="text-xs text-[#706F6F] mt-0.5">
+                    {fileNames.length === 1
+                      ? fileNames[0]
+                      : `${fileNames.length} arquivos consolidados: ${fileNames.join(", ")}`}
+                  </p>
                 </div>
                 <button
                   onClick={fechar}
