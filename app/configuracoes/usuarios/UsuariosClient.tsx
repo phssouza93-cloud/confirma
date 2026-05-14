@@ -10,6 +10,7 @@ import {
 import {
   criarConvite,
   apagarConvite,
+  apagarUsuario,
   atualizarPerfilUsuario,
   alternarAtivoUsuario,
   atualizarLiderUsuario,
@@ -170,6 +171,22 @@ export function UsuariosClient({
       const r = await alternarAtivoUsuario(id, ativo);
       if (!r.ok) return feedback(r.error || "Erro", false);
       feedback(`Usuário ${ativo ? "reativado" : "desativado"}`, true);
+      router.refresh();
+    });
+  }
+
+  function handleApagar(id: string, nome: string) {
+    const ok = window.confirm(
+      `Apagar PERMANENTEMENTE o usuário ${nome}?\n\n` +
+        `Essa ação remove o login e o cadastro de permissões. ` +
+        `Oportunidades e pedidos antigos vão continuar com o nome dele registrado, mas ele não poderá mais entrar no sistema.\n\n` +
+        `Essa ação não pode ser desfeita.`
+    );
+    if (!ok) return;
+    startTransition(async () => {
+      const r = await apagarUsuario(id);
+      if (!r.ok) return feedback(r.error || "Erro", false);
+      feedback("Usuário apagado", true);
       router.refresh();
     });
   }
@@ -486,23 +503,38 @@ export function UsuariosClient({
                     )}
                   </td>
                   <td className="py-2 px-3 text-right">
-                    <button
-                      type="button"
-                      disabled={isPending || isVoce}
-                      onClick={() => handleAtivar(u.id, !ativo, u.nome)}
-                      title={
-                        isVoce ? "Não é possível desativar a si mesmo" : ""
-                      }
-                      className={
-                        "text-xs uppercase font-semibold px-2 py-1 rounded " +
-                        (ativo
-                          ? "text-rose-700 hover:text-rose-900 hover:bg-rose-50"
-                          : "text-emerald-700 hover:text-emerald-900 hover:bg-emerald-50") +
-                        " disabled:opacity-30 disabled:cursor-not-allowed"
-                      }
-                    >
-                      {ativo ? "Desativar" : "Reativar"}
-                    </button>
+                    <div className="inline-flex items-center gap-1">
+                      <button
+                        type="button"
+                        disabled={isPending || isVoce}
+                        onClick={() => handleAtivar(u.id, !ativo, u.nome)}
+                        title={
+                          isVoce ? "Não é possível desativar a si mesmo" : ""
+                        }
+                        className={
+                          "text-xs uppercase font-semibold px-2 py-1 rounded " +
+                          (ativo
+                            ? "text-rose-700 hover:text-rose-900 hover:bg-rose-50"
+                            : "text-emerald-700 hover:text-emerald-900 hover:bg-emerald-50") +
+                          " disabled:opacity-30 disabled:cursor-not-allowed"
+                        }
+                      >
+                        {ativo ? "Desativar" : "Reativar"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isPending || isVoce}
+                        onClick={() => handleApagar(u.id, u.nome)}
+                        title={
+                          isVoce
+                            ? "Não é possível apagar a si mesmo"
+                            : "Apagar permanentemente"
+                        }
+                        className="text-xs uppercase font-semibold px-2 py-1 rounded text-rose-700 hover:text-white hover:bg-rose-600 disabled:opacity-30 disabled:cursor-not-allowed border border-rose-200 hover:border-rose-600"
+                      >
+                        Apagar
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );
@@ -518,22 +550,25 @@ export function UsuariosClient({
 
 function Perfis() {
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl p-5">
-      <h2 className="text-sm uppercase tracking-widest font-bold text-[#1F2C4E] mb-3">
-        O que cada perfil acessa
-      </h2>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+    <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-3">
+      <div>
+        <h2 className="text-sm uppercase tracking-widest font-bold text-[#1F2C4E]">
+          Perfis e o que cada um acessa
+        </h2>
+        <p className="text-xs text-[#706F6F] mt-0.5">
+          Referência rápida pra quem vai gerenciar usuários.
+        </p>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {PERFIS.map((p) => (
           <div
             key={p}
-            className="border border-slate-100 rounded-xl p-3 bg-slate-50/40"
+            className="bg-slate-50 border border-slate-200 rounded-xl p-3"
           >
-            <div className="flex items-center gap-2 mb-1">
-              {badgePerfil(p)}
-            </div>
-            <div className="text-xs text-[#706F6F] leading-relaxed">
-              {PERFIL_DESCRICAO[p]}
-            </div>
+            <div className="mb-1">{badgePerfil(p)}</div>
+            <p className="text-xs text-[#706F6F] leading-snug">
+              {(PERFIL_DESCRICAO as Record<string, string>)[p]}
+            </p>
           </div>
         ))}
       </div>

@@ -1,44 +1,289 @@
 "use client";
 
 import { Fragment, useState, useTransition } from "react";
-import { importarPedidos, type PedidoInput } from "./actions";
-import { formatarDerivacao } from "@/lib/derivacao";
+import { importarPedidos, type PedidoInput, type ItemPedidoInput } from "./actions";
 
 type Etapa = "fechado" | "upload" | "processando" | "preview";
 
-// Templates de pedidos sintéticos para simular extração de PDF
-// Em produção, virá de um parser real de PDF (server-side)
-const TEMPLATES: Omit<PedidoInput, "numero_pedido">[] = [
-  {
-    cliente: "BASE ADMINISTRATIVA DO COMPLEXO DE SAUDE",
-    data_promessa: "2026-06-13",
-    itens: [
-      { sku_codigo: "ACE0003", derivacao: "001", quantidade: 2, descricao_original: "Acessório de Aquecimento de CO2" },
-      { sku_codigo: "ACE0021", derivacao: "001", quantidade: 3, descricao_original: "Mangueira CM-100" },
-      { sku_codigo: "ASP0001", derivacao: "001", quantidade: 1, descricao_original: "Escape de Fumaça CM-100" },
-      { sku_codigo: "INS0002", derivacao: "006", quantidade: 1, descricao_original: "Insuflador CO2 CM-40L" },
-      { sku_codigo: "MTR0005", derivacao: null, quantidade: 1, descricao_original: "Mangueira Termoplástica" },
-    ],
-  },
-  {
-    cliente: "HOSPITAL SIRIO LIBANES",
-    data_promessa: "2026-06-20",
-    itens: [
-      { sku_codigo: "MNT0017", derivacao: "015", quantidade: 2, descricao_original: "Monitor Profissional Grau Médico - CM-CINEMED32F" },
-      { sku_codigo: "CAM0003", derivacao: "010", quantidade: 1, descricao_original: "Microcâmera CM-SCAM3" },
-      { sku_codigo: "FNT0001", derivacao: "001", quantidade: 2, descricao_original: "Fonte de Luz Led - CM-LED" },
-    ],
-  },
-  {
-    cliente: "HOSPITAL ALBERT EINSTEIN",
-    data_promessa: "2026-06-27",
-    itens: [
-      { sku_codigo: "INS0002", derivacao: "004", quantidade: 1, descricao_original: "Insuflador CO2 CM-40L" },
-      { sku_codigo: "LAP0017", derivacao: "001", quantidade: 1, descricao_original: "Endoscópio CM-OTC0051L Laparoscópio" },
-      { sku_codigo: "HIS0008", derivacao: "001", quantidade: 1, descricao_original: "Endoscópio CM-OTC0033H Histeroscópio" },
-    ],
-  },
-];
+declare global {
+  interface Window {
+    pdfjsLib?: {
+      GlobalWorkerOptions: { workerSrc: string };
+      getDocument: (data: { data: ArrayBuffer }) => {
+        promise: Promise<{
+          numPages: number;
+          getPage: (n: number) => Promise<{
+            getTextContent: () => Promise<{
+              items: Array<{ str: string; transform?: number[] }>;
+            }>;
+          }>;
+        }>;
+      };
+    };
+  }
+}
+
+const PDFJS_CDN =
+  "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+const PDFJS_WORKER =
+  "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+type PdfJsLib = NonNullable<Window["pdfjsLib"]>;
+
+async function carregarPdfjs(): Promise<PdfJsLib> {
+  if (typeof window === "undefined") throw new Error("Sem window");
+  const existing = window.pdfjsLib;
+  if (existing) return existing;
+  await new Promise<void>((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = PDFJS_CDN;
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error("Falha ao carregar pdfjs do CDN"));
+    document.head.appendChild(s);
+  });
+  const lib: PdfJsLib | undefined = window.pdfjsLib;
+  if (!lib) throw new Error("pdfjsLib não disponível");
+  lib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
+  return lib;
+}
+
+/**
+ * Extrai texto do PDF reconstruindo linhas REAIS pela coordenada Y de
+ * cada item (transform[5]). Items com Y próximo (tolerância 3pt) ficam
+ * na mesma linha, ordenados por X (transform[4]). Isso preserva a
+ * estrutura visual do PDF e evita que campos lado-a-lado virem texto
+ * misturado quando o pdfjs separa por padrão.
+ */
+async function extrairTextoDoPdf(file: File): Promise<string> {
+  const pdfjs = await carregarPdfjs();
+  const buffer = await file.arrayBuffer();
+  const pdf = await pdfjs.getDocument({ data: buffer }).promise;
+  let textoCompleto = "";
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const tc = await page.getTextContent();
+    // Agrupa items por coordenada Y com tolerância
+    const linhas: Map<number, Array<{ str: string; x: number }>> = new Map();
+    for (const item of tc.items) {
+      const tr = item.transform;
+      if (!tr || tr.length < 6) {
+        // Fallback: sem transform, joga numa "linha 0"
+        const arr = linhas.get(0) || [];
+        arr.push({ str: item.str, x: 0 });
+        linhas.set(0, arr);
+        continue;
+      }
+      const y = Math.round(tr[5]);
+      const x = tr[4];
+      // Acha linha com Y próximo (tolerância de 3 pontos)
+      let chaveY = y;
+      for (const k of linhas.keys()) {
+        if (Math.abs(k - y) < 3) {
+          chaveY = k;
+          break;
+        }
+      }
+      const arr = linhas.get(chaveY) || [];
+      arr.push({ str: item.str, x });
+      linhas.set(chaveY, arr);
+    }
+    // Ordena linhas por Y descendente (PDF: Y cresce de baixo pra cima)
+    const linhasOrdenadas = [...linhas.entries()].sort((a, b) => b[0] - a[0]);
+    for (const [, items] of linhasOrdenadas) {
+      items.sort((a, b) => a.x - b.x);
+      const linha = items
+        .map((it) => it.str)
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (linha) textoCompleto += linha + "\n";
+    }
+  }
+  return textoCompleto;
+}
+
+/**
+ * Extrai dados estruturados de um Pedido de Venda Confiance (RVOR252.GER):
+ * - numero_pedido: do "PEDIDO.: 103.774"
+ * - cliente: depois de "Cliente.......: <codigo> -"
+ * - data_promessa: data mais comum nas linhas de item (Data Entr.)
+ * - itens: linhas "90NNN SKU [DERIV] Descrição ... QTD,00 ..."
+ *
+ * Linhas duplicadas (mesmo SKU + derivação) são consolidadas somando qtd.
+ */
+function extrairPedido(texto: string, nomeArquivo: string): PedidoInput | null {
+  const t = texto.replace(/\s+/g, " ").trim();
+
+  // --- Número do pedido
+  const mPed = t.match(/PEDIDO\.?\s*:\s*([\d.]+)/i);
+  const numero_pedido = mPed
+    ? mPed[1].replace(/\./g, "")
+    : nomeArquivo.replace(/\.pdf$/i, "");
+
+  // --- Cliente: estratégia em 3 etapas (pdfjs separa os campos em pedaços)
+  let cliente = "";
+  // a) Linha bruta com "Cliente": <codigo> -<NOME>"
+  const linhasBrutas = texto.split("\n").map((l) => l.trim());
+  for (let i = 0; i < linhasBrutas.length; i++) {
+    if (/^Cliente\.+\s*:/i.test(linhasBrutas[i])) {
+      // Pega tudo após o ":" na mesma linha
+      const m = linhasBrutas[i].match(
+        /^Cliente\.+\s*:\s*(?:[\d.]+\s*-?\s*)?(.+)$/i
+      );
+      if (m && m[1].trim().length > 3) {
+        cliente = m[1].trim().replace(/^-\s*/, "");
+        break;
+      }
+      // Senão, procura nas próximas 6 linhas algo que pareça nome do cliente
+      // (linha que começa com "-" ou só CAPS, mas NÃO é "Endereço/CNPJ/etc.")
+      for (let j = i + 1; j < Math.min(i + 7, linhasBrutas.length); j++) {
+        const l = linhasBrutas[j];
+        if (!l) continue;
+        // Para se chegou em outro campo do cabeçalho
+        if (/^(Endereço|Bairro|Cidade|Estado|Fone|CPF|CNPJ|Insc|Pipedrive|Transportadora|Contato|Frete|Origem|Tipo|Vendedor|Nome|%)/i.test(l)) break;
+        // Pula código do cliente (só números/pontos) e linhas vazias
+        if (/^[\d.\s-]+$/.test(l)) continue;
+        // Tira prefixo "-" do "-LIGA NORTE..."
+        const limpo = l.replace(/^-\s*/, "").trim();
+        if (limpo.length >= 4 && /^[A-ZÁÉÍÓÚÃÕÇÊÔÂ]/.test(limpo)) {
+          cliente = limpo;
+          break;
+        }
+      }
+      if (cliente) break;
+    }
+  }
+  // b) Fallback no texto flat: pega após "Cliente.:" até antes de "Endereço" ou "CNPJ"
+  if (!cliente) {
+    const mFlat = t.match(
+      /Cliente\.+\s*:\s*(?:[\d.]+\s*-?\s*)?([A-ZÁÉÍÓÚÃÕÇÊÔÂ][A-ZÁÉÍÓÚÃÕÇÊÔÂ \-/&'.0-9]{5,80}?)(?:\s+Endereço|\s+CNPJ|\s+Bairro|\s+Cidade|\s+Fone|\s+\d{2}\.\d{3})/i
+    );
+    if (mFlat) cliente = mFlat[1].trim().replace(/^-\s*/, "");
+  }
+  // Fallback c: procura palavras-chave típicas de cliente hospitalar e
+  // captura a sequência LONGA de CAPS ao redor (3+ palavras com 2+ letras).
+  // O pdfjs costuma colocar o cliente em qualquer lugar do flat (reorganiza
+  // colunas), então essa é a estratégia mais robusta.
+  if (!cliente) {
+    const palavrasCliente = [
+      "HOSPITAL", "LIGA", "INSTITUTO", "INSTITUIÇÃO", "CLINICA", "CLÍNICA",
+      "CENTRO", "BASE", "FUNDA", "MATERNIDADE", "UNIDADE", "COMPLEXO",
+      "AMBULATÓRIO", "AMBULATORIO", "CASA", "SANTA", "SÃO", "ESCOLA",
+      "POLICLÍNICA", "POLICLINICA", "PRONTO", "SECRETARIA", "PREFEITURA",
+      "MUNICÍPIO", "MUNICIPIO", "ASSOCIAÇÃO", "ASSOCIACAO", "REDE",
+    ];
+    // Procura cada palavra e tenta capturar o nome completo
+    // Aceita palavras de 1+ char no meio do nome (pra cobrir "CONTRA O CANCER")
+    for (const pal of palavrasCliente) {
+      const re = new RegExp(
+        `\\b(${pal}[A-ZÁÉÍÓÚÃÕÇÊÔÂ]*(?:\\s+[A-ZÁÉÍÓÚÃÕÇÊÔÂ]+){2,10})\\b`
+      );
+      const m = t.match(re);
+      if (m) {
+        let candidato = m[1].trim();
+        // Rejeita se contém palavras de outros campos
+        if (/\b(?:MARCA|FABRICANTE|MODELO|REGISTRO|PROCED|ANVISA|CONFIANCE|MEDICAL)\b/i.test(candidato)) continue;
+        // Remove sobras de "Estado", "Insc", "CNPJ", "Vendedor" etc. que
+        // possam ter sido capturadas no final (pdfjs reorganiza colunas)
+        candidato = candidato
+          .replace(
+            /\s+[A-Z]?(?:\s*Estado|\s*Insc|\s*CNPJ|\s*Vendedor|\s*Endere|\s*Bairro|\s*Cidade|\s*Fone|\s*Cep|\s*Compl|\s*Frete|\s*Contato).*$/i,
+            ""
+          )
+          .replace(/\s+[A-Z]$/, "") // palavra de 1 char no final
+          .trim();
+        if (candidato.length < 4) continue;
+        cliente = candidato;
+        break;
+      }
+    }
+  }
+
+  // --- Data de entrega: data mais comum DEPOIS de SKUs (Data Entr. dos itens).
+  // O pdfjs pode quebrar a data em pedaços ("11/0", "6/2026") ou colá-la
+  // a outros números. Pra robustez, pega só datas que vêm em sequência
+  // depois de um SKU (no padrão "SKU ... DATA QTD,00").
+  const datasDosItens: string[] = [];
+  const reDataItem =
+    /\b[A-Z]{3}\d{4}\b[\s\S]{0,150}?(\d{1,2}\/\d{1,2}\/\d{4})\s+\d{1,3},00\b/g;
+  let mDataIt: RegExpExecArray | null;
+  while ((mDataIt = reDataItem.exec(t)) !== null) {
+    datasDosItens.push(mDataIt[1]);
+  }
+  // Fallback: todas as datas (se a busca contextual falhar)
+  const datasGenericas = [
+    ...t.matchAll(/\b(\d{1,2}\/\d{1,2}\/\d{4})\b/g),
+  ].map((m) => m[1]);
+  const datasParaFreq =
+    datasDosItens.length > 0 ? datasDosItens : datasGenericas;
+  const freq: Record<string, number> = {};
+  datasParaFreq.forEach((d) => {
+    freq[d] = (freq[d] || 0) + 1;
+  });
+  const ordenadas = Object.entries(freq).sort((a, b) => b[1] - a[1]);
+  let data_promessa: string | null = null;
+  if (ordenadas.length > 0) {
+    const escolhida = ordenadas[0][0];
+    const partes = escolhida.split("/");
+    const d = partes[0].padStart(2, "0");
+    const m = partes[1].padStart(2, "0");
+    const y = partes[2];
+    data_promessa = `${y}-${m}-${d}`;
+  }
+
+  // --- Itens: extrai do texto flat normalizado.
+  // O pdfjs reorganiza colunas verticalmente, então a ordem real é:
+  //   SKU [DERIV] DESCRICAO VLR_UNITARIO DATA QTD,00 COD_TRANS VLR_BRUTO
+  // Ex: "ACE0003 001 Acessório de Aquecimento de CO2 2.467,92 11/06/2026 1,00 90155 2.500,00"
+  // Estratégia: pra cada SKU, captura derivação opcional + qtd via âncora na data.
+  const itens: ItemPedidoInput[] = [];
+  const reSku = /\b([A-Z]{3}\d{4})\b/g;
+  let mSku: RegExpExecArray | null;
+  while ((mSku = reSku.exec(t)) !== null) {
+    const sku = mSku[1];
+    // Olha 250 chars à frente
+    const trecho = t.slice(mSku.index, mSku.index + 250);
+    // Padrão: SKU [DERIV] desc... DATA QTD,00
+    // A âncora DATA garante que QTD,00 é mesmo quantidade (não preço)
+    const mDados = trecho.match(
+      /^[A-Z]{3}\d{4}\b\s*(\d{3})?\s+(.+?)\s+\d{1,2}\/\d{1,2}\/\d{4}\s+(\d{1,3}),00\b/
+    );
+    if (!mDados) continue;
+    const deriv = mDados[1] || null;
+    let desc = mDados[2].trim();
+    const qtd = parseInt(mDados[3]);
+    if (qtd <= 0 || qtd > 999) continue;
+    // Limpa preço unitário que ficou na descrição (ex: "...2.467,92")
+    desc = desc.replace(/\s+[\d.]+,\d{2}\s*$/, "").trim();
+    itens.push({
+      sku_codigo: sku,
+      derivacao: deriv,
+      quantidade: qtd,
+      descricao_original: desc.slice(0, 150),
+    });
+  }
+
+  // --- Consolida itens duplicados (mesmo SKU + derivação)
+  const mapa: Record<string, ItemPedidoInput> = {};
+  itens.forEach((it) => {
+    const chave = `${it.sku_codigo}::${it.derivacao || ""}`;
+    if (mapa[chave]) {
+      mapa[chave].quantidade += it.quantidade;
+    } else {
+      mapa[chave] = { ...it };
+    }
+  });
+  const itensConsolidados = Object.values(mapa);
+
+  if (itensConsolidados.length === 0) return null;
+
+  return {
+    numero_pedido,
+    cliente: cliente || "(sem cliente detectado)",
+    data_promessa,
+    itens: itensConsolidados,
+  };
+}
 
 export function ImportarPedidos() {
   const [etapa, setEtapa] = useState<Etapa>("fechado");
@@ -63,43 +308,48 @@ export function ImportarPedidos() {
     setExpandido(null);
   }
 
-  function processarArquivos(files: File[]) {
+  async function processarArquivos(files: File[]) {
     setFileNames(files.map((f) => f.name));
     setEtapa("processando");
-    setTimeout(() => {
-      const base = Date.now();
-      const lista: PedidoInput[] = files.map((f, i) => {
-        const tpl = TEMPLATES[i % TEMPLATES.length];
-        return {
-          numero_pedido: String(105955 + (base % 1000) + i),
-          cliente: tpl.cliente,
-          data_promessa: tpl.data_promessa,
-          itens: tpl.itens,
-        };
-      });
+    setErro(null);
+    try {
+      const lista: PedidoInput[] = [];
+      const falhas: string[] = [];
+      for (const f of files) {
+        try {
+          const texto = await extrairTextoDoPdf(f);
+          const pedido = extrairPedido(texto, f.name);
+          if (pedido) {
+            lista.push(pedido);
+          } else {
+            falhas.push(f.name);
+          }
+        } catch (e) {
+          console.error("Falha ao ler PDF", f.name, e);
+          falhas.push(f.name);
+        }
+      }
+      if (lista.length === 0) {
+        setErro(
+          "Nenhum pedido foi extraído. Confira se os PDFs são de Pedido de Venda Confiance (formato RVOR252)."
+        );
+        setEtapa("upload");
+        return;
+      }
+      if (falhas.length > 0) {
+        setErro(
+          `Atenção: ${falhas.length} PDF(s) não foram lidos: ${falhas.join(", ")}`
+        );
+      }
       setPedidos(lista);
       setEtapa("preview");
-    }, 1200);
-  }
-
-  function usarExemplo() {
-    setFileNames([
-      "Pedido 105955 - Base Adm Saude RJ.pdf",
-      "Pedido 105956 - Hospital Sirio Libanes.pdf",
-      "Pedido 105957 - Hospital Albert Einstein.pdf",
-    ]);
-    setEtapa("processando");
-    setTimeout(() => {
-      const base = Date.now();
-      const lista: PedidoInput[] = TEMPLATES.map((tpl, i) => ({
-        numero_pedido: String(105955 + (base % 1000) + i),
-        cliente: tpl.cliente,
-        data_promessa: tpl.data_promessa,
-        itens: tpl.itens,
-      }));
-      setPedidos(lista);
-      setEtapa("preview");
-    }, 1200);
+    } catch (e) {
+      setErro(
+        "Erro ao processar PDFs: " +
+          (e instanceof Error ? e.message : String(e))
+      );
+      setEtapa("upload");
+    }
   }
 
   function confirmar() {
@@ -115,7 +365,10 @@ export function ImportarPedidos() {
 
   function fmtMoney(d: string | null) {
     if (!d) return "—";
-    return new Date(d).toLocaleDateString("pt-BR");
+    // Parse manual pra evitar bug de timezone (Date interpreta ISO como UTC)
+    const m = d.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+    return d;
   }
 
   if (etapa === "fechado") {
@@ -189,18 +442,10 @@ export function ImportarPedidos() {
                     Aceita múltiplos arquivos
                   </div>
                 </label>
-                <div className="mt-4 text-center">
-                  <button
-                    onClick={usarExemplo}
-                    className="text-sm text-[#326A84] hover:underline"
-                  >
-                    Demo: importar 3 pedidos de exemplo
-                  </button>
-                </div>
-                <div className="mt-4 bg-[#FFF7E6] border border-[#FFA300]/40 rounded-lg p-3 text-xs text-[#1F2C4E]">
-                  <b>Aviso:</b> a extração de PDF nesta versão é simulada (gera
-                  pedidos sintéticos a partir dos arquivos enviados). Em
-                  produção, plugaremos um parser real do formato RVOR252.GER.
+                <div className="mt-4 bg-[#E6F9FC] border border-[#64C3D1]/40 rounded-lg p-3 text-xs text-[#1F2C4E]">
+                  <b>Formato suportado:</b> Pedido de Venda Confiance (RVOR252.GER).
+                  Extrai número do pedido, cliente, data de entrega e itens
+                  (SKU, derivação, quantidade).
                 </div>
                 {erro && (
                   <div className="mt-4 bg-red-50 border border-red-200 rounded-lg p-3 text-xs text-red-800">
@@ -330,13 +575,8 @@ export function ImportarPedidos() {
                     </tbody>
                   </table>
                 </div>
-                {erro && (
-                  <div className="mt-4 bg-red-50 border border-red-200 rounded-lg p-3 text-xs text-red-800">
-                    {erro}
-                  </div>
-                )}
               </div>
-              <div className="px-6 py-3 border-t border-slate-200 bg-slate-50 flex justify-between">
+              <div className="px-6 py-3 border-t border-slate-200 bg-slate-50 flex justify-between items-center">
                 <button
                   onClick={() => setEtapa("upload")}
                   className="text-sm text-[#706F6F] hover:text-[#1F2C4E]"
@@ -375,7 +615,7 @@ function CardInfo({ titulo, valor }: { titulo: string; valor: number }) {
       <div className="text-xs uppercase tracking-wider text-[#706F6F] font-semibold">
         {titulo}
       </div>
-      <div className="text-2xl font-black text-[#1F2C4E] mt-0.5">{valor}</div>
+      <div className="text-2xl font-black mt-0.5 text-[#1F2C4E]">{valor}</div>
     </div>
   );
 }

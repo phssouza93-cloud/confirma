@@ -16,9 +16,10 @@ type OP = {
 
 type Props = {
   wip: OP[];
+  podeEditar?: boolean;
 };
 
-export function ListaWIP({ wip }: Props) {
+export function ListaWIP({ wip, podeEditar = false }: Props) {
   const searchParams = useSearchParams();
   const filtroQS = searchParams.get("filtro");
   const [pending, startTransition] = useTransition();
@@ -151,21 +152,31 @@ export function ListaWIP({ wip }: Props) {
                     </td>
                     <td className="py-2 px-4 text-right text-sm">{o.qtd_prevista}</td>
                     <td className="py-2 px-4">
-                      <input
-                        type="date"
-                        defaultValue={valor}
-                        onChange={(e) => onChangeData(o.op_numero, e.target.value)}
-                        className={
-                          "border rounded px-2 py-1 text-xs outline-none focus:border-[#326A84] focus:ring-2 focus:ring-[#64C3D1]/30 " +
-                          (o.status === "atrasada"
-                            ? "border-red-300 text-red-700 font-medium"
-                            : o.status === "aguardando_data"
-                            ? "border-amber-300 bg-amber-50/50"
-                            : "border-slate-200")
-                        }
-                      />
-                      {isEditando && (
-                        <span className="ml-2 text-xs text-[#706F6F]">salvando...</span>
+                      {podeEditar ? (
+                        <>
+                          <input
+                            type="date"
+                            defaultValue={valor}
+                            onChange={(e) => onChangeData(o.op_numero, e.target.value)}
+                            className={
+                              "border rounded px-2 py-1 text-xs outline-none focus:border-[#326A84] focus:ring-2 focus:ring-[#64C3D1]/30 " +
+                              (o.status === "atrasada"
+                                ? "border-red-300 text-red-700 font-medium"
+                                : o.status === "aguardando_data"
+                                ? "border-amber-300 bg-amber-50/50"
+                                : "border-slate-200")
+                            }
+                          />
+                          {isEditando && (
+                            <span className="ml-2 text-xs text-[#706F6F]">salvando...</span>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-xs text-[#1F2C4E]">
+                          {valor
+                            ? new Date(valor + "T00:00:00").toLocaleDateString("pt-BR")
+                            : "—"}
+                        </span>
                       )}
                     </td>
                     <td className="py-2 px-4">{statusBadge(o.status)}</td>

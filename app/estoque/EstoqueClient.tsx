@@ -22,7 +22,13 @@ function normalizar(s: string) {
     .replace(/[̀-ͯ]/g, "");
 }
 
-export function EstoqueClient({ linhas }: { linhas: LinhaEstoque[] }) {
+export function EstoqueClient({
+  linhas,
+  podeEditar = false,
+}: {
+  linhas: LinhaEstoque[];
+  podeEditar?: boolean;
+}) {
   const searchParams = useSearchParams();
   const filtroQS = searchParams.get("filtro");
 
@@ -194,11 +200,17 @@ export function EstoqueClient({ linhas }: { linhas: LinhaEstoque[] }) {
                       <td className="py-2 px-4 text-right">
                         {s.eh_servico ? (
                           <span className="text-xs text-slate-400">—</span>
-                        ) : (
+                        ) : podeEditar ? (
                           <LeadTimeInput
                             codigo={s.codigo}
                             valorInicial={s.lead_time_dias}
                           />
+                        ) : (
+                          <span className="text-xs text-[#1F2C4E]">
+                            {s.lead_time_dias != null
+                              ? `${s.lead_time_dias}d`
+                              : "—"}
+                          </span>
                         )}
                       </td>
                     </tr>

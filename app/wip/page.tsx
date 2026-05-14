@@ -76,18 +76,22 @@ export default async function WIPPage() {
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <ImportarWIP
-                wipAtual={listaComStatus.map((o: OP) => ({
-                  op_numero: o.op_numero,
-                  data_prevista: o.data_prevista,
-                }))}
-              />
-              {ctx.perfil === "admin" && listaComStatus.length > 0 && (
-                <BotaoLimparTudo
-                  label="OPs em andamento"
-                  descricaoAcao="todas as OPs em andamento"
-                  action={limparWIP}
-                />
+              {ctx.perfil === "admin" && (
+                <>
+                  <ImportarWIP
+                    wipAtual={listaComStatus.map((o: OP) => ({
+                      op_numero: o.op_numero,
+                      data_prevista: o.data_prevista,
+                    }))}
+                  />
+                  {listaComStatus.length > 0 && (
+                    <BotaoLimparTudo
+                      label="OPs em andamento"
+                      descricaoAcao="todas as OPs em andamento"
+                      action={limparWIP}
+                    />
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -123,10 +127,10 @@ export default async function WIPPage() {
               <p className="text-sm text-[#706F6F] mb-5">
                 Suba a planilha do ERP (Em andamento.xlsx) para começar.
               </p>
-              <ImportarWIP wipAtual={[]} />
+              {ctx.perfil === "admin" && <ImportarWIP wipAtual={[]} />}
             </div>
           ) : (
-            <ListaWIP wip={listaComStatus} />
+            <ListaWIP wip={listaComStatus} podeEditar={ctx.perfil === "admin"} />
           )}
         </div>
       </main>

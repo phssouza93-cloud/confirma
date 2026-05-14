@@ -95,14 +95,18 @@ export default async function EstoquePage() {
               </p>
             </div>
             <div className="flex gap-2">
-              <ImportarCadastroMestre qtdAtual={lista.length} />
-              <ImportarEstoque qtdAtual={totalUnidades} />
-              {ctx.perfil === "admin" && totalUnidades > 0 && (
-                <BotaoLimparTudo
-                  label="estoque"
-                  descricaoAcao="todas as posições de estoque (por derivação e agregado). O cadastro mestre de SKUs será preservado."
-                  action={limparEstoque}
-                />
+              {ctx.perfil === "admin" && (
+                <>
+                  <ImportarCadastroMestre qtdAtual={lista.length} />
+                  <ImportarEstoque qtdAtual={totalUnidades} />
+                  {totalUnidades > 0 && (
+                    <BotaoLimparTudo
+                      label="estoque"
+                      descricaoAcao="todas as posições de estoque (por derivação e agregado). O cadastro mestre de SKUs será preservado."
+                      action={limparEstoque}
+                    />
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -138,13 +142,15 @@ export default async function EstoquePage() {
                 Comece pelo <b>Cadastro mestre</b> (lista de SKUs) e depois
                 importe a posição de estoque por derivação.
               </p>
-              <div className="flex gap-2 justify-center">
-                <ImportarCadastroMestre qtdAtual={0} />
-                <ImportarEstoque qtdAtual={0} />
-              </div>
+              {ctx.perfil === "admin" && (
+                <div className="flex gap-2 justify-center">
+                  <ImportarCadastroMestre qtdAtual={0} />
+                  <ImportarEstoque qtdAtual={0} />
+                </div>
+              )}
             </div>
           ) : (
-            <EstoqueClient linhas={linhas} />
+            <EstoqueClient linhas={linhas} podeEditar={ctx.perfil === "admin"} />
           )}
         </div>
       </main>

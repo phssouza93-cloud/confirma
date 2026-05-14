@@ -6,23 +6,26 @@
  * consultor só as próprias).
  */
 
-export type Perfil = "admin" | "consultor" | "gestor";
+export type Perfil = "admin" | "backoffice" | "consultor" | "gestor";
 
-export const PERFIS: Perfil[] = ["admin", "gestor", "consultor"];
+export const PERFIS: Perfil[] = ["admin", "backoffice", "gestor", "consultor"];
 
 export const PERFIL_LABEL: Record<Perfil, string> = {
   admin: "Administrador",
-  gestor: "Gestor",
-  consultor: "Consultor",
+  backoffice: "Backoffice",
+  gestor: "Gestor Regional",
+  consultor: "Consultor Comercial",
 };
 
 export const PERFIL_DESCRICAO: Record<Perfil, string> = {
   admin:
-    "Acesso total: todas as áreas e todas as oportunidades. Gerencia usuários, aliases e cadastros.",
+    "Acesso total: todas as áreas e todas as oportunidades. Edita Estoque, WIP, Carteira. Gerencia usuários, aliases e cadastros.",
+  backoffice:
+    "Lança oportunidades de qualquer consultor durante a feira. Consulta Estoque, WIP, Carteira e Disponível (sem editar). Não acessa Dashboard.",
   gestor:
-    "Acessa Estoque, WIP, Carteira e Disponível inteiros. Vê suas oportunidades e as dos consultores liderados. Dashboard filtrado pelo time.",
+    "Consulta Estoque, WIP, Carteira e Disponível. Vê suas oportunidades e as dos consultores liderados. Dashboard filtrado pelo time.",
   consultor:
-    "Acessa Carteira inteira, Disponível e apenas as oportunidades dele. Sem cadastros nem dashboard.",
+    "Consulta Estoque, WIP, Carteira, Disponível e Dashboard. Cria e edita apenas as próprias oportunidades.",
 };
 
 export const AREAS = {
@@ -51,6 +54,15 @@ const PERMISSOES: Record<Perfil, Area[]> = {
     "admin",
     "configuracoes",
   ],
+  backoffice: [
+    "inicio",
+    "estoque",
+    "wip",
+    "carteira",
+    "disponivel",
+    "oportunidades",
+    // Sem Dashboard
+  ],
   gestor: [
     "inicio",
     "estoque",
@@ -60,8 +72,32 @@ const PERMISSOES: Record<Perfil, Area[]> = {
     "oportunidades",
     "dashboard",
   ],
-  consultor: ["inicio", "carteira", "disponivel", "oportunidades"],
+  consultor: [
+    "inicio",
+    "estoque",
+    "wip",
+    "carteira",
+    "disponivel",
+    "oportunidades",
+    "dashboard",
+  ],
 };
+
+/**
+ * Quem pode editar/importar/limpar nas telas operacionais
+ * (Estoque, WIP, Carteira). Só o admin.
+ */
+export function podeEditarOperacional(perfil: string): boolean {
+  return perfil === "admin";
+}
+
+/**
+ * Quem pode criar/editar oportunidades de qualquer owner. Admin e Backoffice.
+ * Gestor edita as suas + liderados; Consultor só as próprias.
+ */
+export function podeLancarOportunidadeQualquerOwner(perfil: string): boolean {
+  return perfil === "admin" || perfil === "backoffice";
+}
 
 export function ehPerfilValido(p: string): p is Perfil {
   return (PERFIS as string[]).includes(p);

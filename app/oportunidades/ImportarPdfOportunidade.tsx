@@ -13,7 +13,7 @@ declare global {
           numPages: number;
           getPage: (n: number) => Promise<{
             getTextContent: () => Promise<{
-              items: Array<{ str: string }>;
+              items: Array<{ str: string; transform?: number[] }>;
             }>;
           }>;
         }>;

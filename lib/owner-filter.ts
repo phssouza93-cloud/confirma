@@ -29,6 +29,7 @@ export async function obterFiltroOwners(
   perfil: string
 ): Promise<FiltroOwners> {
   if (perfil === "admin") return { tipo: "todos" };
+  if (perfil === "backoffice") return { tipo: "todos" };
   if (perfil === "consultor") return { tipo: "lista", owners: [nome] };
   if (perfil === "gestor") {
     const supabase = await createClient();

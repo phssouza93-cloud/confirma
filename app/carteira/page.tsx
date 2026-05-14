@@ -63,13 +63,17 @@ export default async function CarteiraPage() {
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <ImportarPedidos />
-              {ctx.perfil === "admin" && lista.length > 0 && (
-                <BotaoLimparTudo
-                  label="carteira"
-                  descricaoAcao="todos os pedidos da carteira (importados via PDF e os firmados de oportunidades)"
-                  action={limparCarteira}
-                />
+              {ctx.perfil === "admin" && (
+                <>
+                  <ImportarPedidos />
+                  {lista.length > 0 && (
+                    <BotaoLimparTudo
+                      label="carteira"
+                      descricaoAcao="todos os pedidos da carteira (importados via PDF e os firmados de oportunidades)"
+                      action={limparCarteira}
+                    />
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -89,10 +93,10 @@ export default async function CarteiraPage() {
               <p className="text-sm text-[#706F6F] mb-5">
                 Suba PDFs de pedidos para começar.
               </p>
-              <ImportarPedidos />
+              {ctx.perfil === "admin" && <ImportarPedidos />}
             </div>
           ) : (
-            <ListaCarteira linhas={lista} />
+            <ListaCarteira linhas={lista} podeEditar={ctx.perfil === "admin"} />
           )}
         </div>
       </main>

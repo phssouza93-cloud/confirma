@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useState, useTransition } from "react";
+import { Fragment, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   apagarPedido,
@@ -36,6 +36,7 @@ type Pedido = {
 
 type Props = {
   linhas: LinhaCarteira[];
+  podeEditar?: boolean;
 };
 
 function agrupar(linhas: LinhaCarteira[]): Pedido[] {
@@ -107,14 +108,64 @@ function statusBadge(s: string) {
 
 function fmtData(d: string | null) {
   if (!d) return "—";
-  return new Date(d).toLocaleDateString("pt-BR");
+  // Parse manual pra evitar bug de timezone (Date interpreta ISO como UTC)
+  const m = d.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+  return d;
 }
 
-export function ListaCarteira({ linhas }: Props) {
+function normalizar(s: string) {
+  return String(s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "");
+}
+
+export function ListaCarteira({ linhas, podeEditar = false }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const pedidos = agrupar(linhas);
+  const pedidosTodos = agrupar(linhas);
   const [expandido, setExpandido] = useState<Set<string>>(new Set());
+  const [busca, setBusca] = useState("");
+  const [filtroStatus, setFiltroStatus] = useState<
+    "todos" | "em_producao" | "aguardando_liberacao" | "liberado" | "misto"
+  >("todos");
+  const [filtroOrigem, setFiltroOrigem] = useState<
+    "todos" | "pdf" | "oportunidade"
+  >("todos");
+  const [filtroAtrasados, setFiltroAtrasados] = useState(false);
+
+  const pedidos = useMemo(() => {
+    let arr = pedidosTodos.slice();
+    if (filtroStatus !== "todos") {
+      arr = arr.filter((p) => p.statusAgregado === filtroStatus);
+    }
+    if (filtroOrigem === "pdf") {
+      arr = arr.filter((p) => !p.veioDeOportunidade);
+    } else if (filtroOrigem === "oportunidade") {
+      arr = arr.filter((p) => p.veioDeOportunidade);
+    }
+    if (filtroAtrasados) {
+      arr = arr.filter(
+        (p) =>
+          p.prevLiberacaoAgg &&
+          p.dataPromessa &&
+          new Date(p.prevLiberacaoAgg) > new Date(p.dataPromessa)
+      );
+    }
+    const q = normalizar(busca.trim());
+    if (q) {
+      arr = arr.filter((p) => {
+        const blob = normalizar(
+          `${p.numero} ${p.cliente} ${p.itens
+            .map((i) => `${i.sku_codigo} ${i.derivacao || ""}`)
+            .join(" ")}`
+        );
+        return blob.includes(q);
+      });
+    }
+    return arr;
+  }, [pedidosTodos, busca, filtroStatus, filtroOrigem, filtroAtrasados]);
 
   function toggle(numero: string) {
     const novo = new Set(expandido);
@@ -153,7 +204,89 @@ export function ListaCarteira({ linhas }: Props) {
   }
 
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+    <>
+      {/* Filtros */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-4 mb-4 flex flex-col gap-3">
+        <div className="flex flex-col md:flex-row md:items-center gap-3">
+          <div className="flex-1">
+            <input
+              type="text"
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar por pedido, cliente, SKU ou derivação…"
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#64C3D1] focus:bg-white"
+            />
+          </div>
+          <label className="inline-flex items-center gap-1.5 text-xs text-[#1F2C4E] cursor-pointer">
+            <input
+              type="checkbox"
+              checked={filtroAtrasados}
+              onChange={(e) => setFiltroAtrasados(e.target.checked)}
+              className="rounded"
+            />
+            Só atrasados
+          </label>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Chip
+            ativo={filtroStatus === "todos"}
+            cor="navy"
+            onClick={() => setFiltroStatus("todos")}
+          >
+            Todos status
+          </Chip>
+          <Chip
+            ativo={filtroStatus === "em_producao"}
+            cor="cyan"
+            onClick={() => setFiltroStatus("em_producao")}
+          >
+            Em produção
+          </Chip>
+          <Chip
+            ativo={filtroStatus === "aguardando_liberacao"}
+            cor="amber"
+            onClick={() => setFiltroStatus("aguardando_liberacao")}
+          >
+            Aguard. liberação
+          </Chip>
+          <Chip
+            ativo={filtroStatus === "liberado"}
+            cor="emerald"
+            onClick={() => setFiltroStatus("liberado")}
+          >
+            Liberado
+          </Chip>
+          <span className="mx-1 border-l border-slate-200"></span>
+          <Chip
+            ativo={filtroOrigem === "todos"}
+            cor="navy"
+            onClick={() => setFiltroOrigem("todos")}
+          >
+            Todas origens
+          </Chip>
+          <Chip
+            ativo={filtroOrigem === "pdf"}
+            cor="cyan"
+            onClick={() => setFiltroOrigem("pdf")}
+          >
+            PDF importado
+          </Chip>
+          <Chip
+            ativo={filtroOrigem === "oportunidade"}
+            cor="emerald"
+            onClick={() => setFiltroOrigem("oportunidade")}
+          >
+            Oport. firmada
+          </Chip>
+        </div>
+      </div>
+
+      <div className="text-xs text-[#706F6F] mb-2 px-1">
+        {pedidos.length} de {pedidosTodos.length}{" "}
+        {pedidosTodos.length === 1 ? "pedido" : "pedidos"}
+      </div>
+
+      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
       <table className="w-full text-sm">
         <thead className="bg-slate-50 text-xs uppercase text-[#706F6F]">
           <tr>
@@ -214,24 +347,35 @@ export function ListaCarteira({ linhas }: Props) {
                     )}
                   </td>
                   <td className="py-3 px-4 text-xs">
-                    <input
-                      type="date"
-                      defaultValue={p.prevLiberacaoAgg || ""}
-                      onBlur={(e) =>
-                        salvarPedidoPrev(p.numero, e.target.value)
-                      }
-                      onClick={(e) => e.stopPropagation()}
-                      disabled={isPending}
-                      className={
-                        "bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:border-[#64C3D1] focus:bg-white " +
-                        (atrasado ? "border-rose-300 text-rose-700" : "")
-                      }
-                      title={
-                        atrasado
-                          ? "⚠ Previsão de liberação ultrapassa o prazo limite"
-                          : "Editável pelo PCP"
-                      }
-                    />
+                    {podeEditar ? (
+                      <input
+                        type="date"
+                        defaultValue={p.prevLiberacaoAgg || ""}
+                        onBlur={(e) =>
+                          salvarPedidoPrev(p.numero, e.target.value)
+                        }
+                        onClick={(e) => e.stopPropagation()}
+                        disabled={isPending}
+                        className={
+                          "bg-slate-50 border border-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:border-[#64C3D1] focus:bg-white " +
+                          (atrasado ? "border-rose-300 text-rose-700" : "")
+                        }
+                        title={
+                          atrasado
+                            ? "⚠ Previsão de liberação ultrapassa o prazo limite"
+                            : "Editável pelo PCP"
+                        }
+                      />
+                    ) : (
+                      <span
+                        className={
+                          "text-xs " +
+                          (atrasado ? "text-rose-700 font-semibold" : "text-[#1F2C4E]")
+                        }
+                      >
+                        {fmtData(p.prevLiberacaoAgg)}
+                      </span>
+                    )}
                   </td>
                   <td
                     className={
@@ -249,7 +393,7 @@ export function ListaCarteira({ linhas }: Props) {
                     {statusBadge(p.statusAgregado)}
                   </td>
                   <td className="py-3 px-2 text-center">
-                    {p.veioDeOportunidade ? (
+                    {!podeEditar ? null : p.veioDeOportunidade ? (
                       <span
                         className="text-[10px] text-slate-400 cursor-help"
                         title="Pedido vindo de oportunidade firmada — reabra a oportunidade pra remover."
@@ -258,7 +402,6 @@ export function ListaCarteira({ linhas }: Props) {
                       </span>
                     ) : (
                       <button
-                        type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           excluirPedido(p.numero, p.cliente);
@@ -302,20 +445,33 @@ export function ListaCarteira({ linhas }: Props) {
                         </td>
                         <td className="py-1.5 px-4 text-xs">—</td>
                         <td className="py-1.5 px-4 text-xs">
-                          <input
-                            type="date"
-                            defaultValue={it.prev_liberacao || ""}
-                            onBlur={(e) =>
-                              salvarLinhaPrev(it.id, e.target.value)
-                            }
-                            disabled={isPending}
-                            className={
-                              "bg-white border border-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:border-[#64C3D1] " +
-                              (linhaAtrasada
-                                ? "border-rose-300 text-rose-700"
-                                : "")
-                            }
-                          />
+                          {podeEditar ? (
+                            <input
+                              type="date"
+                              defaultValue={it.prev_liberacao || ""}
+                              onBlur={(e) =>
+                                salvarLinhaPrev(it.id, e.target.value)
+                              }
+                              disabled={isPending}
+                              className={
+                                "bg-white border border-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:border-[#64C3D1] " +
+                                (linhaAtrasada
+                                  ? "border-rose-300 text-rose-700"
+                                  : "")
+                              }
+                            />
+                          ) : (
+                            <span
+                              className={
+                                "text-xs " +
+                                (linhaAtrasada
+                                  ? "text-rose-700 font-semibold"
+                                  : "text-[#1F2C4E]")
+                              }
+                            >
+                              {fmtData(it.prev_liberacao)}
+                            </span>
+                          )}
                         </td>
                         <td
                           className={
@@ -339,6 +495,55 @@ export function ListaCarteira({ linhas }: Props) {
           })}
         </tbody>
       </table>
-    </div>
+      </div>
+    </>
+  );
+}
+
+function Chip({
+  ativo,
+  cor,
+  onClick,
+  children,
+}: {
+  ativo: boolean;
+  cor: "navy" | "amber" | "cyan" | "rose" | "emerald";
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  const palette: Record<string, { on: string; off: string }> = {
+    navy: {
+      on: "bg-[#1F2C4E] text-white border-[#1F2C4E]",
+      off: "bg-white text-[#1F2C4E] border-slate-200 hover:border-[#64C3D1]",
+    },
+    amber: {
+      on: "bg-amber-500 text-white border-amber-500",
+      off: "bg-white text-amber-700 border-amber-300 hover:border-amber-500",
+    },
+    cyan: {
+      on: "bg-[#1E9DBA] text-white border-[#1E9DBA]",
+      off: "bg-white text-[#1E9DBA] border-[#64C3D1]/40 hover:border-[#1E9DBA]",
+    },
+    rose: {
+      on: "bg-rose-600 text-white border-rose-600",
+      off: "bg-white text-rose-700 border-rose-300 hover:border-rose-500",
+    },
+    emerald: {
+      on: "bg-emerald-600 text-white border-emerald-600",
+      off: "bg-white text-emerald-700 border-emerald-300 hover:border-emerald-500",
+    },
+  };
+  const def = palette[cor] || palette.navy;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        "px-3 py-1 rounded-full text-xs font-semibold cursor-pointer transition-colors border " +
+        (ativo ? def.on : def.off)
+      }
+    >
+      {children}
+    </button>
   );
 }

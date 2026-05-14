@@ -145,6 +145,44 @@ export async function atualizarPerfilUsuario(formData: FormData) {
   return { ok: true };
 }
 
+/**
+ * Apaga DEFINITIVAMENTE um usuário (do Supabase Auth + tabela usuarios).
+ * Antes de apagar: limpa lider_id de quem tinha esse usuário como líder
+ * (pra não deixar referências órfãs). Não apaga oportunidades nem nada
+ * que tenha o owner como nome — esses ficam no banco com o nome registrado.
+ */
+export async function apagarUsuario(id: string) {
+  const ctx = await ensureAdmin();
+  if (!id) return { ok: false, error: "ID inválido" };
+  if (id === ctx.userId) {
+    return { ok: false, error: "Você não pode apagar a si mesmo." };
+  }
+  const admin = getAdmin();
+
+  // 1) Limpa lider_id em quem tinha esse usuário como líder
+  await admin
+    .from("usuarios")
+    .update({ lider_id: null })
+    .eq("lider_id", id);
+
+  // 2) Apaga da tabela usuarios (perfil/permissões)
+  const { error: errDel } = await admin
+    .from("usuarios")
+    .delete()
+    .eq("id", id);
+  if (errDel) return { ok: false, error: errDel.message };
+
+  // 3) Apaga do Supabase Auth (login). Se falhar, não reverte o passo 2.
+  try {
+    await admin.auth.admin.deleteUser(id);
+  } catch (e) {
+    console.warn("Falha ao apagar do auth:", e);
+  }
+
+  invalidar();
+  return { ok: true };
+}
+
 export async function alternarAtivoUsuario(id: string, ativo: boolean) {
   const ctx = await ensureAdmin();
   if (!id) return { ok: false, error: "ID inválido" };
