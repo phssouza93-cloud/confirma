@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { LeadTimeInput } from "./LeadTimeInput";
 
@@ -34,16 +34,10 @@ export function EstoqueClient({
 
   const [busca, setBusca] = useState("");
   const [ocultarServicos, setOcultarServicos] = useState(true);
-  const [soSemLeadTime, setSoSemLeadTime] = useState(false);
+  const [soSemLeadTime, setSoSemLeadTime] = useState(
+    () => filtroQS === "sem_lead_time"
+  );
   const [soComEstoque, setSoComEstoque] = useState(false);
-
-  // Ativa filtro automaticamente quando vem da URL (ex.: /estoque?filtro=sem_lead_time)
-  useEffect(() => {
-    if (filtroQS === "sem_lead_time") {
-      setSoSemLeadTime(true);
-      setOcultarServicos(true);
-    }
-  }, [filtroQS]);
 
   const filtradas = useMemo(() => {
     const q = normalizar(busca.trim());
