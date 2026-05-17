@@ -173,7 +173,6 @@ export async function importarPosicaoEstoque(linhas: DerivacaoInput[]) {
   }
 
   // 5) recalcula skus.estoque = soma das derivações
-  // (faz isso de forma simples: agrupa em JS e atualiza um por vez)
   const totaisPorSku: Record<string, number> = {};
   linhasPayload.forEach((l) => {
     totaisPorSku[l.sku_id] = (totaisPorSku[l.sku_id] || 0) + l.qtd_disponivel;
@@ -183,9 +182,17 @@ export async function importarPosicaoEstoque(linhas: DerivacaoInput[]) {
     .from("skus")
     .update({ estoque: 0 })
     .neq("id", "00000000-0000-0000-0000-000000000000");
-  // atualiza os que têm posição
-  for (const [skuId, total] of Object.entries(totaisPorSku)) {
-    await supabase.from("skus").update({ estoque: total }).eq("id", skuId);
+  // Paraleliza os updates em chunks pra não estourar timeout do Netlify.
+  // Cada chunk dispara N updates em paralelo via Promise.all.
+  const entries = Object.entries(totaisPorSku);
+  const CHUNK_SIZE = 25;
+  for (let i = 0; i < entries.length; i += CHUNK_SIZE) {
+    const chunk = entries.slice(i, i + CHUNK_SIZE);
+    await Promise.all(
+      chunk.map(([skuId, total]) =>
+        supabase.from("skus").update({ estoque: total }).eq("id", skuId)
+      )
+    );
   }
 
   revalidatePath("/estoque");
