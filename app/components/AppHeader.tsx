@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { LogoConfiance } from "./LogoConfiance";
-import { LogoutButton } from "./LogoutButton";
+import { logoutAction } from "../login/actions";
 import { temAcesso, PERFIL_LABEL, ehPerfilValido } from "@/lib/permissoes";
 import { GearMenu } from "./GearMenu";
+import { HeartbeatPing } from "./HeartbeatPing";
 
 type Props = {
   nome: string;
@@ -32,11 +33,11 @@ export function AppHeader({ nome, perfil, rotaAtiva }: Props) {
   const isAdmin = perfil === "admin";
   const perfilLabel = ehPerfilValido(perfil) ? PERFIL_LABEL[perfil] : perfil;
 
-  // Filtra a navegação principal pelas permissões do perfil
   const navVisivel = NAV.filter((item) => temAcesso(perfil, item.href));
 
   return (
     <header className="bg-white border-b border-slate-100">
+      <HeartbeatPing />
       <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between gap-6">
         <div className="flex items-center gap-8">
           <Link href="/">
@@ -73,7 +74,15 @@ export function AppHeader({ nome, perfil, rotaAtiva }: Props) {
           <span className="w-9 h-9 rounded-full bg-[#E6F9FC] text-[#1E9DBA] flex items-center justify-center font-bold text-sm">
             {iniciais}
           </span>
-          <LogoutButton />
+          <form action={logoutAction}>
+            <button
+              type="submit"
+              className="text-xs uppercase tracking-wider font-semibold text-[#706F6F] hover:text-[#1F2C4E] px-3 py-2 rounded-lg hover:bg-slate-50 transition"
+              title="Sair"
+            >
+              Sair
+            </button>
+          </form>
         </div>
       </div>
       <div className="brand-gradient h-1"></div>

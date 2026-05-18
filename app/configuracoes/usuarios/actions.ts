@@ -419,3 +419,26 @@ export async function registrarSessao(
   });
   return { ok: true };
 }
+
+/**
+ * Ping de heartbeat — atualiza ultimo_acesso da sessão do device atual
+ * pra marcar o usuário como "online". Chamado periodicamente pelo client
+ * (a cada 90s). Não é admin-only — qualquer usuário logado pinga a si.
+ */
+export async function pingSessao(device_id: string): Promise<{ ok: boolean }> {
+  if (!device_id) return { ok: false };
+  let ctx;
+  try {
+    ctx = await ensureSessionSemRedirectSenha();
+  } catch {
+    return { ok: false };
+  }
+  const admin = getAdmin();
+  await admin
+    .from("sessoes_ativas")
+    .update({ ultimo_acesso: new Date().toISOString() })
+    .eq("user_id", ctx.userId)
+    .eq("device_id", device_id);
+  return { ok: true };
+}
+

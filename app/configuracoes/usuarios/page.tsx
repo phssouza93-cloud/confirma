@@ -26,16 +26,26 @@ export default async function ConfigUsuariosPage() {
       )
       .is("usado_em", null)
       .order("criado_em", { ascending: false }),
-    supabase.from("sessoes_ativas").select("user_id"),
+    supabase.from("sessoes_ativas").select("user_id, ultimo_acesso"),
   ]);
 
   const usuarios = (usuariosData || []) as UsuarioRow[];
   const convites = (convitesData || []) as ConviteRow[];
 
+  // Conta sessões + pega a última atividade (mais recente) por usuário.
+  // O cálculo de "online" (janela de 3 min) é feito no cliente — assim
+  // não precisa Date.now() no server component (regra react-hooks/purity).
   const sessoesPorUsuario: Record<string, number> = {};
-  (sessoesData || []).forEach((s: { user_id: string }) => {
-    sessoesPorUsuario[s.user_id] = (sessoesPorUsuario[s.user_id] || 0) + 1;
-  });
+  const ultimaAtividadePorUsuario: Record<string, string | null> = {};
+  (sessoesData || []).forEach(
+    (s: { user_id: string; ultimo_acesso: string | null }) => {
+      sessoesPorUsuario[s.user_id] = (sessoesPorUsuario[s.user_id] || 0) + 1;
+      const atual = ultimaAtividadePorUsuario[s.user_id];
+      if (!atual || (s.ultimo_acesso && s.ultimo_acesso > atual)) {
+        ultimaAtividadePorUsuario[s.user_id] = s.ultimo_acesso;
+      }
+    }
+  );
 
   return (
     <>
@@ -71,6 +81,7 @@ export default async function ConfigUsuariosPage() {
             convites={convites}
             currentUserId={ctx.userId}
             sessoesPorUsuario={sessoesPorUsuario}
+            ultimaAtividadePorUsuario={ultimaAtividadePorUsuario}
           />
         </div>
       </main>

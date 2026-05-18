@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useMemo } from "react";
+import { useState, useTransition, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   PERFIS,
@@ -17,6 +17,8 @@ import {
   encerrarSessoesUsuario,
 } from "./actions";
 import { SENHA_PADRAO_PRIMEIRO_ACESSO } from "@/lib/senha";
+
+const JANELA_ONLINE_MS = 3 * 60 * 1000;
 
 export type UsuarioRow = {
   id: string;
@@ -68,11 +70,13 @@ export function UsuariosClient({
   convites,
   currentUserId,
   sessoesPorUsuario,
+  ultimaAtividadePorUsuario,
 }: {
   usuarios: UsuarioRow[];
   convites: ConviteRow[];
   currentUserId: string;
   sessoesPorUsuario: Record<string, number>;
+  ultimaAtividadePorUsuario: Record<string, string | null>;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -83,6 +87,17 @@ export function UsuariosClient({
   const [copiado, setCopiado] = useState(false);
   const [perfilForm, setPerfilForm] = useState<string>("consultor");
 
+  // Auto-refresh a cada 30s pra manter o status online fresco sem
+  // forçar o usuário a recarregar a página manualmente.
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        router.refresh();
+      }
+    }, 30 * 1000);
+    return () => clearInterval(id);
+  }, [router]);
+
   const gestores = useMemo(
     () => usuarios.filter((u) => u.perfil === "gestor" && u.ativo !== false),
     [usuarios]
@@ -92,6 +107,29 @@ export function UsuariosClient({
     usuarios.forEach((u) => (m[u.id] = u));
     return m;
   }, [usuarios]);
+
+  // Calcula quem está online no CLIENT (janela de 3 min). Recalcula
+  // a cada 15s pra atualizar a bolinha sem precisar router.refresh().
+  const [agora, setAgora] = useState<number>(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setAgora(Date.now()), 15 * 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const usuariosOnline = useMemo(() => {
+    const m: Record<string, boolean> = {};
+    Object.entries(ultimaAtividadePorUsuario).forEach(([uid, ts]) => {
+      if (!ts) return;
+      const idade = agora - new Date(ts).getTime();
+      if (idade < JANELA_ONLINE_MS) m[uid] = true;
+    });
+    return m;
+  }, [ultimaAtividadePorUsuario, agora]);
+
+  const totalOnline = useMemo(
+    () => usuarios.filter((u) => usuariosOnline[u.id]).length,
+    [usuarios, usuariosOnline]
+  );
 
   function feedback(msg: string, ok: boolean) {
     if (ok) {
@@ -238,6 +276,52 @@ export function UsuariosClient({
           {erro}
         </div>
       )}
+
+      {/* KPIs: total cadastrados + online agora */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="bg-white border border-slate-200 rounded-xl p-4">
+          <div className="text-xs uppercase tracking-wider text-[#706F6F] font-semibold">
+            Cadastrados
+          </div>
+          <div className="text-2xl md:text-3xl font-black mt-1 text-[#1F2C4E]">
+            {usuarios.length}
+          </div>
+          <div className="text-xs text-[#706F6F] mt-0.5">total na base</div>
+        </div>
+        <div className="bg-white border border-emerald-200 rounded-xl p-4">
+          <div className="text-xs uppercase tracking-wider text-emerald-700 font-semibold flex items-center gap-1.5">
+            <span className="relative inline-flex w-2 h-2">
+              <span className="animate-ping absolute inline-flex w-full h-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex w-2 h-2 rounded-full bg-emerald-500"></span>
+            </span>
+            Online agora
+          </div>
+          <div className="text-2xl md:text-3xl font-black mt-1 text-emerald-700">
+            {totalOnline}
+          </div>
+          <div className="text-xs text-[#706F6F] mt-0.5">
+            ativo nos últimos 3 min
+          </div>
+        </div>
+        <div className="bg-white border border-slate-200 rounded-xl p-4">
+          <div className="text-xs uppercase tracking-wider text-[#706F6F] font-semibold">
+            Ativos
+          </div>
+          <div className="text-2xl md:text-3xl font-black mt-1 text-[#326A84]">
+            {usuarios.filter((u) => u.ativo !== false).length}
+          </div>
+          <div className="text-xs text-[#706F6F] mt-0.5">podem acessar</div>
+        </div>
+        <div className="bg-white border border-slate-200 rounded-xl p-4">
+          <div className="text-xs uppercase tracking-wider text-[#706F6F] font-semibold">
+            Desativados
+          </div>
+          <div className="text-2xl md:text-3xl font-black mt-1 text-slate-400">
+            {usuarios.filter((u) => u.ativo === false).length}
+          </div>
+          <div className="text-xs text-[#706F6F] mt-0.5">sem acesso</div>
+        </div>
+      </div>
 
       {linkConvite && (
         <div className="bg-[#E6F9FC] border border-[#64C3D1]/40 rounded-2xl p-4">
@@ -465,15 +549,25 @@ export function UsuariosClient({
               const isVoce = u.id === currentUserId;
               const lider = u.lider_id ? usuariosPorId[u.lider_id] : null;
               const sessoes = sessoesPorUsuario[u.id] || 0;
+              const online = !!usuariosOnline[u.id];
               return (
                 <tr key={u.id} className={ativo ? "" : "bg-slate-50/50"}>
                   <td className="py-2 px-4 text-sm text-[#1F2C4E]">
-                    {u.nome}
-                    {isVoce && (
-                      <span className="ml-2 text-[10px] uppercase tracking-wider text-[#1E9DBA] font-semibold">
-                        você
-                      </span>
-                    )}
+                    <div className="inline-flex items-center gap-2">
+                      <span
+                        className={
+                          "inline-flex w-2 h-2 rounded-full " +
+                          (online ? "bg-emerald-500" : "bg-slate-300")
+                        }
+                        title={online ? "Online agora" : "Offline"}
+                      />
+                      <span>{u.nome}</span>
+                      {isVoce && (
+                        <span className="ml-1 text-[10px] uppercase tracking-wider text-[#1E9DBA] font-semibold">
+                          você
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="py-2 px-3 text-xs text-[#706F6F]">
                     {u.email}
