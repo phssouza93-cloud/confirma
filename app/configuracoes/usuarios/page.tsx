@@ -10,7 +10,11 @@ export default async function ConfigUsuariosPage() {
   const ctx = await ensureAdmin();
   const supabase = await createClient();
 
-  const [{ data: usuariosData }, { data: convitesData }] = await Promise.all([
+  const [
+    { data: usuariosData },
+    { data: convitesData },
+    { data: sessoesData },
+  ] = await Promise.all([
     supabase
       .from("usuarios")
       .select("id, email, nome, perfil, ativo, lider_id, created_at")
@@ -22,10 +26,16 @@ export default async function ConfigUsuariosPage() {
       )
       .is("usado_em", null)
       .order("criado_em", { ascending: false }),
+    supabase.from("sessoes_ativas").select("user_id"),
   ]);
 
   const usuarios = (usuariosData || []) as UsuarioRow[];
   const convites = (convitesData || []) as ConviteRow[];
+
+  const sessoesPorUsuario: Record<string, number> = {};
+  (sessoesData || []).forEach((s: { user_id: string }) => {
+    sessoesPorUsuario[s.user_id] = (sessoesPorUsuario[s.user_id] || 0) + 1;
+  });
 
   return (
     <>
@@ -60,6 +70,7 @@ export default async function ConfigUsuariosPage() {
             usuarios={usuarios}
             convites={convites}
             currentUserId={ctx.userId}
+            sessoesPorUsuario={sessoesPorUsuario}
           />
         </div>
       </main>

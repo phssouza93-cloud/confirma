@@ -92,8 +92,26 @@ export async function loginAction(
   return { ok: true };
 }
 
-export async function logoutAction() {
+export async function logoutAction(formData?: FormData) {
   const supabase = await createClient();
+  const device_id = String(formData?.get("device_id") || "").slice(0, 100);
+
+  // Antes de deslogar, remove a entry do device atual em sessoes_ativas
+  // pra liberar o slot do limite de 2 dispositivos.
+  if (device_id) {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user) {
+      const admin = getAdmin();
+      await admin
+        .from("sessoes_ativas")
+        .delete()
+        .eq("user_id", user.id)
+        .eq("device_id", device_id);
+    }
+  }
+
   await supabase.auth.signOut();
   revalidatePath("/", "layout");
   redirect("/login");

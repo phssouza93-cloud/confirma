@@ -325,6 +325,25 @@ export async function criarUsuarioDireto(formData: FormData) {
 }
 
 /**
+ * Encerra TODAS as sessões ativas de um usuário (limpa sessoes_ativas).
+ * Usado quando o usuário fica preso no limite de 2 dispositivos por entries fantasmas.
+ * Não invalida o token JWT — o usuário pode continuar usando até o token expirar,
+ * mas no próximo login os slots de dispositivo estarão livres.
+ */
+export async function encerrarSessoesUsuario(id: string) {
+  await ensureAdmin();
+  if (!id) return { ok: false, error: "ID inválido" };
+  const admin = getAdmin();
+  const { error } = await admin
+    .from("sessoes_ativas")
+    .delete()
+    .eq("user_id", id);
+  if (error) return { ok: false, error: error.message };
+  invalidar();
+  return { ok: true };
+}
+
+/**
  * Reseta a senha de um usuário para a senha padrão de primeiro acesso
  * e marca precisa_trocar_senha=true. Só admin pode chamar.
  */
