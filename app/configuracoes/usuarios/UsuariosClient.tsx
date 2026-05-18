@@ -14,6 +14,7 @@ import {
   atualizarLiderUsuario,
   criarUsuarioDireto,
   resetarSenhaUsuario,
+  encerrarSessoesUsuario,
 } from "./actions";
 import { SENHA_PADRAO_PRIMEIRO_ACESSO } from "@/lib/senha";
 
@@ -66,10 +67,12 @@ export function UsuariosClient({
   usuarios,
   convites,
   currentUserId,
+  sessoesPorUsuario,
 }: {
   usuarios: UsuarioRow[];
   convites: ConviteRow[];
   currentUserId: string;
+  sessoesPorUsuario: Record<string, number>;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -122,6 +125,21 @@ export function UsuariosClient({
         `Usuário criado. Senha inicial: "${SENHA_PADRAO_PRIMEIRO_ACESSO}". O usuário será obrigado a trocá-la no primeiro acesso.`,
         true
       );
+      router.refresh();
+    });
+  }
+
+  function handleEncerrarSessoes(id: string, nome: string, count: number) {
+    if (count === 0) return;
+    const ok = window.confirm(
+      `Encerrar ${count} sessão(ões) ativa(s) de ${nome}?\n\n` +
+        `Vai liberar todos os slots de dispositivos. O usuário continua logado nos dispositivos atuais até o token expirar, mas no próximo login os slots estarão livres.`
+    );
+    if (!ok) return;
+    startTransition(async () => {
+      const r = await encerrarSessoesUsuario(id);
+      if (!r.ok) return feedback(r.error || "Erro", false);
+      feedback(`Sessões de ${nome} encerradas`, true);
       router.refresh();
     });
   }
@@ -447,6 +465,7 @@ export function UsuariosClient({
               const ativo = u.ativo !== false;
               const isVoce = u.id === currentUserId;
               const lider = u.lider_id ? usuariosPorId[u.lider_id] : null;
+              const sessoes = sessoesPorUsuario[u.id] || 0;
               return (
                 <tr key={u.id} className={ativo ? "" : "bg-slate-50/50"}>
                   <td className="py-2 px-4 text-sm text-[#1F2C4E]">
@@ -528,6 +547,21 @@ export function UsuariosClient({
                         }
                       >
                         {ativo ? "Desativar" : "Reativar"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isPending || sessoes === 0}
+                        onClick={() =>
+                          handleEncerrarSessoes(u.id, u.nome, sessoes)
+                        }
+                        title={
+                          sessoes === 0
+                            ? "Sem sessões ativas"
+                            : `Encerrar ${sessoes} sessão(ões) ativa(s) — libera slots de dispositivo`
+                        }
+                        className="text-xs uppercase font-semibold px-2 py-1 rounded text-sky-700 hover:text-white hover:bg-sky-600 disabled:opacity-30 disabled:cursor-not-allowed border border-sky-200 hover:border-sky-600"
+                      >
+                        Sessões {sessoes}/2
                       </button>
                       <button
                         type="button"

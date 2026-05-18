@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { LogoConfiance } from "./LogoConfiance";
-import { logoutAction } from "../login/actions";
+import { LogoutButton } from "./LogoutButton";
 import { temAcesso, PERFIL_LABEL, ehPerfilValido } from "@/lib/permissoes";
 import { GearMenu } from "./GearMenu";
 
@@ -73,15 +73,7 @@ export function AppHeader({ nome, perfil, rotaAtiva }: Props) {
           <span className="w-9 h-9 rounded-full bg-[#E6F9FC] text-[#1E9DBA] flex items-center justify-center font-bold text-sm">
             {iniciais}
           </span>
-          <form action={logoutAction}>
-            <button
-              type="submit"
-              className="text-xs uppercase tracking-wider font-semibold text-[#706F6F] hover:text-[#1F2C4E] px-3 py-2 rounded-lg hover:bg-slate-50 transition"
-              title="Sair"
-            >
-              Sair
-            </button>
-          </form>
+          <LogoutButton />
         </div>
       </div>
       <div className="brand-gradient h-1"></div>
