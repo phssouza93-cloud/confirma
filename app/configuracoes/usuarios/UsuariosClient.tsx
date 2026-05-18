@@ -83,7 +83,6 @@ export function UsuariosClient({
   const [copiado, setCopiado] = useState(false);
   const [perfilForm, setPerfilForm] = useState<string>("consultor");
 
-  // Quem pode ser líder = gestores ativos
   const gestores = useMemo(
     () => usuarios.filter((u) => u.perfil === "gestor" && u.ativo !== false),
     [usuarios]
@@ -435,7 +434,7 @@ export function UsuariosClient({
                   <td className="py-2 px-3 text-right">
                     <button
                       type="button"
-                      onClick={() => alert("Fluxo de convites foi removido. Crie usuário direto.") /* legacy */}
+                      onClick={() => alert("Fluxo de convites foi removido. Crie usuário direto.")}
                       className="text-xs uppercase font-semibold text-rose-700 hover:text-rose-900 px-2 py-1 rounded hover:bg-rose-50"
                     >
                       Apagar

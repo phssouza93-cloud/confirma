@@ -127,7 +127,6 @@ export async function atualizarPerfilUsuario(formData: FormData) {
   }
 
   const admin = getAdmin();
-  // Se está virando admin/gestor, limpa o lider_id (não faz sentido ter líder)
   const update: { perfil: Perfil; lider_id?: null } = {
     perfil: perfil as Perfil,
   };
@@ -146,12 +145,6 @@ export async function atualizarPerfilUsuario(formData: FormData) {
   return { ok: true };
 }
 
-/**
- * Apaga DEFINITIVAMENTE um usuário (do Supabase Auth + tabela usuarios).
- * Antes de apagar: limpa lider_id de quem tinha esse usuário como líder
- * (pra não deixar referências órfãs). Não apaga oportunidades nem nada
- * que tenha o owner como nome — esses ficam no banco com o nome registrado.
- */
 export async function apagarUsuario(id: string) {
   const ctx = await ensureAdmin();
   if (!id) return { ok: false, error: "ID inválido" };
@@ -160,20 +153,17 @@ export async function apagarUsuario(id: string) {
   }
   const admin = getAdmin();
 
-  // 1) Limpa lider_id em quem tinha esse usuário como líder
   await admin
     .from("usuarios")
     .update({ lider_id: null })
     .eq("lider_id", id);
 
-  // 2) Apaga da tabela usuarios (perfil/permissões)
   const { error: errDel } = await admin
     .from("usuarios")
     .delete()
     .eq("id", id);
   if (errDel) return { ok: false, error: errDel.message };
 
-  // 3) Apaga do Supabase Auth (login). Se falhar, não reverte o passo 2.
   try {
     await admin.auth.admin.deleteUser(id);
   } catch (e) {
@@ -262,11 +252,6 @@ export async function aceitarConvite(formData: FormData) {
   return { ok: true };
 }
 
-/**
- * Cadastra um usuário DIRETO (sem convite por link). Cria no Supabase Auth
- * com a senha padrão de primeiro acesso e marca precisa_trocar_senha=true.
- * O usuário entra com a senha padrão e é forçado a trocar.
- */
 export async function criarUsuarioDireto(formData: FormData) {
   await ensureAdmin();
   const admin = getAdmin();
@@ -282,7 +267,6 @@ export async function criarUsuarioDireto(formData: FormData) {
   if (!ehPerfilValido(perfil))
     return { ok: false, error: "Perfil inválido" };
 
-  // Verifica duplicidade
   const { data: jaExiste } = await admin
     .from("usuarios")
     .select("id")
@@ -291,7 +275,6 @@ export async function criarUsuarioDireto(formData: FormData) {
   if (jaExiste)
     return { ok: false, error: "Já existe usuário com esse email" };
 
-  // Cria no Auth com senha padrão
   const { data: novoUser, error: errAuth } = await admin.auth.admin.createUser({
     email,
     password: SENHA_PADRAO_PRIMEIRO_ACESSO,
@@ -301,7 +284,6 @@ export async function criarUsuarioDireto(formData: FormData) {
   if (errAuth) return { ok: false, error: errAuth.message };
   const userId = novoUser.user!.id;
 
-  // Cria linha em usuarios
   const { error: errIns } = await admin.from("usuarios").upsert(
     {
       id: userId,
@@ -315,7 +297,6 @@ export async function criarUsuarioDireto(formData: FormData) {
     { onConflict: "id" }
   );
   if (errIns) {
-    // rollback do auth
     await admin.auth.admin.deleteUser(userId);
     return { ok: false, error: errIns.message };
   }
@@ -324,12 +305,6 @@ export async function criarUsuarioDireto(formData: FormData) {
   return { ok: true };
 }
 
-/**
- * Encerra TODAS as sessões ativas de um usuário (limpa sessoes_ativas).
- * Usado quando o usuário fica preso no limite de 2 dispositivos por entries fantasmas.
- * Não invalida o token JWT — o usuário pode continuar usando até o token expirar,
- * mas no próximo login os slots de dispositivo estarão livres.
- */
 export async function encerrarSessoesUsuario(id: string) {
   await ensureAdmin();
   if (!id) return { ok: false, error: "ID inválido" };
@@ -343,40 +318,28 @@ export async function encerrarSessoesUsuario(id: string) {
   return { ok: true };
 }
 
-/**
- * Reseta a senha de um usuário para a senha padrão de primeiro acesso
- * e marca precisa_trocar_senha=true. Só admin pode chamar.
- */
 export async function resetarSenhaUsuario(id: string) {
   await ensureAdmin();
   if (!id) return { ok: false, error: "ID inválido" };
   const admin = getAdmin();
 
-  // 1) Reseta senha no Auth
   const { error: errAuth } = await admin.auth.admin.updateUserById(id, {
     password: SENHA_PADRAO_PRIMEIRO_ACESSO,
   });
   if (errAuth) return { ok: false, error: errAuth.message };
 
-  // 2) Marca flag de troca obrigatória
   const { error: errFlag } = await admin
     .from("usuarios")
     .update({ precisa_trocar_senha: true })
     .eq("id", id);
   if (errFlag) return { ok: false, error: errFlag.message };
 
-  // 3) Limpa sessões ativas dele (força re-login em todos os dispositivos)
   await admin.from("sessoes_ativas").delete().eq("user_id", id);
 
   invalidar();
   return { ok: true };
 }
 
-/**
- * O próprio usuário troca sua senha. Usado na página /trocar-senha.
- * Valida força da senha (mín 8, 1 maiúscula, 1 especial) e marca a flag
- * precisa_trocar_senha=false.
- */
 export async function trocarMinhaSenha(senhaNova: string) {
   const ctx = await ensureSessionSemRedirectSenha();
   const validacao = validarSenhaForte(senhaNova);
@@ -391,13 +354,11 @@ export async function trocarMinhaSenha(senhaNova: string) {
   }
 
   const admin = getAdmin();
-  // 1) Atualiza senha no Auth
   const { error: errAuth } = await admin.auth.admin.updateUserById(ctx.userId, {
     password: senhaNova,
   });
   if (errAuth) return { ok: false, error: errAuth.message };
 
-  // 2) Limpa a flag
   const { error: errFlag } = await admin
     .from("usuarios")
     .update({ precisa_trocar_senha: false })
@@ -408,12 +369,6 @@ export async function trocarMinhaSenha(senhaNova: string) {
   return { ok: true };
 }
 
-/**
- * Registra (ou atualiza) o "dispositivo" atual do usuário em sessoes_ativas.
- * Aplica a regra: máx 2 dispositivos distintos. Se já tiver 2 e o atual não
- * estiver na lista, retorna ok=false com mensagem.
- * Sessões inativas (>7 dias) são removidas no início pra liberar slot.
- */
 export async function registrarSessao(
   device_id: string,
   user_agent: string
@@ -422,7 +377,6 @@ export async function registrarSessao(
   const ctx = await ensureSessionSemRedirectSenha();
   const admin = getAdmin();
 
-  // 1) Limpa sessões com mais de 7 dias sem acesso
   const seteDiasAtras = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   await admin
     .from("sessoes_ativas")
@@ -430,7 +384,6 @@ export async function registrarSessao(
     .eq("user_id", ctx.userId)
     .lt("ultimo_acesso", seteDiasAtras);
 
-  // 2) Vê se o device atual já está registrado
   const { data: existente } = await admin
     .from("sessoes_ativas")
     .select("id")
@@ -439,7 +392,6 @@ export async function registrarSessao(
     .maybeSingle();
 
   if (existente) {
-    // Já existe — só atualiza ultimo_acesso
     await admin
       .from("sessoes_ativas")
       .update({ ultimo_acesso: new Date().toISOString() })
@@ -447,7 +399,6 @@ export async function registrarSessao(
     return { ok: true };
   }
 
-  // 3) Conta sessões ativas
   const { count } = await admin
     .from("sessoes_ativas")
     .select("id", { count: "exact", head: true })
@@ -461,8 +412,8 @@ export async function registrarSessao(
     };
   }
 
-  // 4) Registra
-  await admin.from("sessoes_ativas").insert({ user_id: ctx.userId,
+  await admin.from("sessoes_ativas").insert({
+    user_id: ctx.userId,
     device_id,
     user_agent: user_agent.slice(0, 200),
   });

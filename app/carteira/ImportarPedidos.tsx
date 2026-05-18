@@ -261,6 +261,12 @@ function extrairPedido(texto: string, nomeArquivo: string): PedidoInput | null {
       quantidade: qtd,
       descricao_original: desc.slice(0, 150),
     });
+    // Avança o cursor pra DEPOIS do bloco que acabou de ser consumido.
+    // Isso impede que falsos SKUs ([A-Z]{3}\d{4}) que estão DENTRO da
+    // descrição (ex: "UPS3200" dentro de "Nobreak Power Sinus UPS3200
+    // Laboratorial") sejam interpretados como itens novos no próximo
+    // iter do exec.
+    reSku.lastIndex = mSku.index + mDados[0].length;
   }
 
   // --- Consolida itens duplicados (mesmo SKU + derivação)
