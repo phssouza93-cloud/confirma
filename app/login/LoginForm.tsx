@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { loginAction } from "./actions";
 
@@ -29,11 +29,11 @@ export function LoginForm({ erroInicial }: { erroInicial?: string }) {
   const [mostrarSenha, setMostrarSenha] = useState(false);
   const [erro, setErro] = useState<string | null>(erroInicial || null);
   const [pending, startTransition] = useTransition();
-  const [deviceId, setDeviceId] = useState("");
-
-  useEffect(() => {
-    setDeviceId(getOrCreateDeviceId());
-  }, []);
+  // Lazy init: roda só 1x no primeiro render. Guard pra SSR (sem window).
+  const [deviceId] = useState<string>(() => {
+    if (typeof window === "undefined") return "";
+    return getOrCreateDeviceId();
+  });
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

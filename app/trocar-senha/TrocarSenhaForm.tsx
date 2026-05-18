@@ -101,11 +101,6 @@ export function TrocarSenhaForm({ obrigatorio, email }: Props) {
           </div>
           <ul className="mt-2 space-y-0.5 text-[11px] text-[#706F6F]">
             {descreveRegrasSenha().map((regra) => {
-              const ok =
-                senha.length > 0 &&
-                !validacao.erros.some((e) =>
-                  e.toLowerCase().includes(regra.toLowerCase().split(" ")[2] || "")
-                );
               const realmenteOk =
                 senha.length > 0 && !validacao.erros.some((e) => e === regra);
               return (

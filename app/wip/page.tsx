@@ -21,7 +21,6 @@ type OP = {
 export default async function WIPPage() {
   const ctx = await ensureAcesso("/wip");
   const supabase = await createClient();
-  const perfil = { nome: ctx.nome, perfil: ctx.perfil };
 
   const { data: wip } = await supabase
     .from("wip")

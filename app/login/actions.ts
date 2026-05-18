@@ -92,13 +92,6 @@ export async function loginAction(
   return { ok: true };
 }
 
-export async function cadastroAction(_formData: FormData) {
-  return redirect(
-    "/login?erro=" +
-      encodeURIComponent("Cadastro fechado. Peça acesso ao administrador.")
-  );
-}
-
 export async function logoutAction() {
   const supabase = await createClient();
   await supabase.auth.signOut();

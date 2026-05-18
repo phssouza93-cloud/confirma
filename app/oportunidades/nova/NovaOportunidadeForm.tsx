@@ -377,7 +377,7 @@ export function NovaOportunidadeForm({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {itens.map((it, idx) => (
+              {itens.map((it) => (
                 <tr key={it.id}>
                   <td className="py-2 px-3">
                     <input

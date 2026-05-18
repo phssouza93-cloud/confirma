@@ -8,7 +8,6 @@ export const dynamic = "force-dynamic";
 export default async function Home() {
   const ctx = await ensureAcesso("/");
   const supabase = await createClient();
-  const perfil = { nome: ctx.nome, perfil: ctx.perfil };
 
   const nomeExibicao = ctx.nome;
   const perfilExibicao = ctx.perfil;

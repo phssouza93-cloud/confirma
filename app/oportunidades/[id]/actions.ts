@@ -106,10 +106,7 @@ export async function firmarOportunidade(opp_id: string) {
       (carteiraReservadaPorChave[chave] || 0) + (Number(l.quantidade) || 0);
   });
 
-  function escolherDerivacao(
-    codigo: string,
-    qtdNecessaria: number
-  ): string | null {
+  function escolherDerivacao(codigo: string): string | null {
     const lista = derivsPorCodigo[codigo];
     if (!lista || lista.length === 0) return null;
     // Calcula disponível de cada derivação (estoque - carteira já reservada)
@@ -170,8 +167,7 @@ export async function firmarOportunidade(opp_id: string) {
       derivsPorCodigo[m.sku.codigo] &&
       derivsPorCodigo[m.sku.codigo].length > 0
     ) {
-      const qtdNecessaria = Math.round(Number(it.quantidade) || 0);
-      derivacaoFinal = escolherDerivacao(m.sku.codigo, qtdNecessaria);
+      derivacaoFinal = escolherDerivacao(m.sku.codigo);
     }
 
     return {

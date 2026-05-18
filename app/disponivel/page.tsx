@@ -39,7 +39,6 @@ type WipLinha = {
 export default async function DisponivelPage() {
   const ctx = await ensureAcesso("/disponivel");
   const supabase = await createClient();
-  const perfil = { nome: ctx.nome, perfil: ctx.perfil };
 
   const [
     { data: skusData },

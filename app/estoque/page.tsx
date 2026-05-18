@@ -28,7 +28,6 @@ type Derivacao = {
 export default async function EstoquePage() {
   const ctx = await ensureAcesso("/estoque");
   const supabase = await createClient();
-  const perfil = { nome: ctx.nome, perfil: ctx.perfil };
 
   const { data: skus } = await supabase
     .from("skus")
@@ -64,9 +63,6 @@ export default async function EstoquePage() {
     (s: number, x: SKU) => s + (x.estoque || 0),
     0
   );
-  const familias = new Set(
-    lista.map((s: SKU) => s.familia).filter(Boolean)
-  ).size;
   const skusComEstoque = lista.filter((s: SKU) => (s.estoque || 0) > 0).length;
   const skusSemLeadTime = lista.filter(
     (s: SKU) => !s.eh_servico && s.lead_time_dias == null
