@@ -8,13 +8,15 @@ export type SessionContext = {
   perfil: string;
   email: string;
   ativo: boolean;
+  precisa_trocar_senha: boolean;
 };
 
 /**
- * Garante que há usuário logado e ele tem perfil ATIVO.
- * Retorna {nome, perfil, etc} pra usar no header e dentro da página.
+ * Versão "raw" sem redirect por troca de senha — pra ser usada pela
+ * própria página /trocar-senha (que precisa saber quem é o usuário,
+ * mas não pode redirecionar pra si mesma).
  */
-export async function ensureSession(): Promise<SessionContext> {
+export async function ensureSessionSemRedirectSenha(): Promise<SessionContext> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -23,12 +25,11 @@ export async function ensureSession(): Promise<SessionContext> {
 
   const { data: perfil } = await supabase
     .from("usuarios")
-    .select("nome, perfil, ativo")
+    .select("nome, perfil, ativo, precisa_trocar_senha")
     .eq("id", user.id)
     .single();
 
   if (!perfil) {
-    // Usuário no Auth mas sem linha em usuarios → desloga
     await supabase.auth.signOut();
     redirect("/login?erro=Usu%C3%A1rio+sem+permiss%C3%A3o");
   }
@@ -43,7 +44,19 @@ export async function ensureSession(): Promise<SessionContext> {
     perfil: perfil.perfil || "consultor",
     email: user.email || "",
     ativo: perfil.ativo !== false,
+    precisa_trocar_senha: perfil.precisa_trocar_senha === true,
   };
+}
+
+/**
+ * Garante que há usuário logado e ele tem perfil ATIVO.
+ * Se o usuário tem flag precisa_trocar_senha=true, força redirect pra
+ * /trocar-senha.
+ */
+export async function ensureSession(): Promise<SessionContext> {
+  const ctx = await ensureSessionSemRedirectSenha();
+  if (ctx.precisa_trocar_senha) redirect("/trocar-senha");
+  return ctx;
 }
 
 /**

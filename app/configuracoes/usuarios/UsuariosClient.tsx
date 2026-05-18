@@ -8,13 +8,14 @@ import {
   PERFIL_DESCRICAO,
 } from "@/lib/permissoes";
 import {
-  criarConvite,
-  apagarConvite,
   apagarUsuario,
   atualizarPerfilUsuario,
   alternarAtivoUsuario,
   atualizarLiderUsuario,
+  criarUsuarioDireto,
+  resetarSenhaUsuario,
 } from "./actions";
+import { SENHA_PADRAO_PRIMEIRO_ACESSO } from "@/lib/senha";
 
 export type UsuarioRow = {
   id: string;
@@ -111,25 +112,32 @@ export function UsuariosClient({
 
   function handleCriar(form: FormData) {
     startTransition(async () => {
-      const r = await criarConvite(form);
-      if (!r.ok || !r.token) {
-        return feedback(r.error || "Erro ao criar convite", false);
+      const r = await criarUsuarioDireto(form);
+      if (!r.ok) {
+        return feedback(r.error || "Erro ao criar usuário", false);
       }
-      const link = linkDoConvite(r.token);
-      setLinkConvite(link);
       setShowForm(false);
       setPerfilForm("consultor");
-      feedback("Convite criado · copie o link abaixo e envie", true);
+      feedback(
+        `Usuário criado. Senha inicial: "${SENHA_PADRAO_PRIMEIRO_ACESSO}". O usuário será obrigado a trocá-la no primeiro acesso.`,
+        true
+      );
       router.refresh();
     });
   }
 
-  function handleApagarConvite(id: string, email: string) {
-    if (!window.confirm(`Apagar o convite para ${email}?`)) return;
+  function handleResetarSenha(id: string, nome: string) {
+    const ok = window.confirm(
+      `Resetar a senha de ${nome} para "${SENHA_PADRAO_PRIMEIRO_ACESSO}"?\n\nO usuário será obrigado a criar uma nova senha no próximo login, e todas as sessões dele serão encerradas.`
+    );
+    if (!ok) return;
     startTransition(async () => {
-      const r = await apagarConvite(id);
-      if (!r.ok) return feedback(r.error || "Erro ao apagar", false);
-      feedback("Convite apagado", true);
+      const r = await resetarSenhaUsuario(id);
+      if (!r.ok) return feedback(r.error || "Erro ao resetar senha", false);
+      feedback(
+        `Senha resetada. Avise ${nome}: a senha padrão é "${SENHA_PADRAO_PRIMEIRO_ACESSO}".`,
+        true
+      );
       router.refresh();
     });
   }
@@ -259,7 +267,7 @@ export function UsuariosClient({
           onClick={() => setShowForm((v) => !v)}
           className="bg-[#1F2C4E] hover:bg-[#326A84] text-white font-semibold uppercase tracking-wider text-xs px-4 py-2 rounded-lg"
         >
-          {showForm ? "Cancelar" : "+ Convidar usuário"}
+          {showForm ? "Cancelar" : "+ Novo usuário"}
         </button>
       </div>
 
@@ -269,7 +277,7 @@ export function UsuariosClient({
           className="bg-[#E6F9FC] border border-[#64C3D1]/40 rounded-2xl p-4 space-y-3"
         >
           <div className="text-xs uppercase tracking-wider text-[#1F2C4E] font-semibold">
-            Novo convite
+            Novo usuário
           </div>
           <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
             <div className="md:col-span-4">
@@ -354,13 +362,13 @@ export function UsuariosClient({
               disabled={isPending}
               className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold uppercase tracking-wider text-xs px-4 py-2 rounded-lg disabled:opacity-50"
             >
-              {isPending ? "Gerando…" : "Gerar link de convite"}
+              {isPending ? "Criando…" : "Criar usuário"}
             </button>
           </div>
         </form>
       )}
 
-      {convites.length > 0 && (
+      {false && convites.length > 0 && (
         <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
           <div className="px-5 py-3 border-b border-slate-100 bg-amber-50/30">
             <h2 className="text-sm uppercase tracking-widest font-bold text-amber-900">
@@ -409,7 +417,7 @@ export function UsuariosClient({
                   <td className="py-2 px-3 text-right">
                     <button
                       type="button"
-                      onClick={() => handleApagarConvite(c.id, c.email)}
+                      onClick={() => alert("Fluxo de convites foi removido. Crie usuário direto.") /* legacy */}
                       className="text-xs uppercase font-semibold text-rose-700 hover:text-rose-900 px-2 py-1 rounded hover:bg-rose-50"
                     >
                       Apagar
@@ -520,6 +528,15 @@ export function UsuariosClient({
                         }
                       >
                         {ativo ? "Desativar" : "Reativar"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isPending}
+                        onClick={() => handleResetarSenha(u.id, u.nome)}
+                        title={`Resetar senha pra "${SENHA_PADRAO_PRIMEIRO_ACESSO}" (usuário troca no próximo login)`}
+                        className="text-xs uppercase font-semibold px-2 py-1 rounded text-amber-700 hover:text-white hover:bg-amber-600 disabled:opacity-30 disabled:cursor-not-allowed border border-amber-200 hover:border-amber-600"
+                      >
+                        Resetar senha
                       </button>
                       <button
                         type="button"

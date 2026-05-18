@@ -1,13 +1,10 @@
-import { LoginForm } from "./LoginForm";
+import { ensureSessionSemRedirectSenha } from "@/lib/auth";
+import { TrocarSenhaForm } from "./TrocarSenhaForm";
 
 export const dynamic = "force-dynamic";
 
-type Props = {
-  searchParams: Promise<{ erro?: string }>;
-};
-
-export default async function LoginPage({ searchParams }: Props) {
-  const { erro } = await searchParams;
+export default async function TrocarSenhaPage() {
+  const ctx = await ensureSessionSemRedirectSenha();
 
   return (
     <main className="flex-1 flex items-center justify-center bg-white px-6 py-10">
@@ -37,30 +34,22 @@ export default async function LoginPage({ searchParams }: Props) {
             </svg>
           </div>
           <h1 className="text-3xl font-black tracking-tight text-[#1F2C4E] uppercase">
-            Confirma
+            Trocar Senha
           </h1>
           <p className="text-sm text-[#706F6F] mt-1">
-            Confiance Medical · Promessa de Prazo
+            {ctx.precisa_trocar_senha
+              ? "Você precisa criar uma senha pessoal antes de continuar."
+              : "Atualize sua senha de acesso."}
           </p>
         </div>
 
         <div className="bg-white border border-[#E6F9FC] rounded-2xl shadow-sm overflow-hidden">
           <div className="brand-gradient h-1"></div>
           <div className="p-6 md:p-8">
-            <h2 className="text-sm uppercase tracking-widest font-bold text-[#1F2C4E] mb-1">
-              Entrar
-            </h2>
-            <p className="text-xs text-[#706F6F] mb-5">
-              Use seu email e senha cadastrados.
-            </p>
-
-            <LoginForm erroInicial={erro} />
-
-            <div className="mt-6 pt-6 border-t border-slate-100 text-center">
-              <p className="text-xs text-[#706F6F] leading-relaxed">
-                Acesso restrito. Sem conta? Peça acesso ao administrador.
-              </p>
-            </div>
+            <TrocarSenhaForm
+              obrigatorio={ctx.precisa_trocar_senha}
+              email={ctx.email}
+            />
           </div>
         </div>
 
