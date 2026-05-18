@@ -108,8 +108,8 @@ export function ListaWIP({ wip, podeEditar = false }: Props) {
         {filtradas.length} de {wip.length} {wip.length === 1 ? "OP" : "OPs"}
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="bg-white border border-slate-200 rounded-2xl overflow-x-auto">
+        <table className="w-full text-sm min-w-[700px]">
           <thead className="bg-slate-50 text-xs uppercase text-[#706F6F]">
             <tr>
               <th className="text-left py-3 px-4 font-semibold">OP</th>

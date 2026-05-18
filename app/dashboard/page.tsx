@@ -432,7 +432,8 @@ export default async function DashboardPage() {
                 Nenhum gargalo identificado no pipeline atual.
               </div>
             ) : (
-              <table className="w-full text-sm">
+              <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[560px]">
                 <thead className="bg-slate-50 text-xs uppercase text-[#706F6F]">
                   <tr>
                     <th className="text-left py-2 px-4 font-semibold">SKU</th>
@@ -458,10 +459,11 @@ export default async function DashboardPage() {
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
           </div>
 
-          <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+          <div className="bg-white border border-slate-200 rounded-2xl overflow-x-auto">
             <div className="px-5 py-3 border-b border-slate-100 flex items-baseline justify-between gap-4">
               <div>
                 <h2 className="text-sm uppercase tracking-widest font-bold text-[#1F2C4E]">

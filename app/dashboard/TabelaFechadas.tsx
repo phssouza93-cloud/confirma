@@ -26,7 +26,8 @@ export function TabelaFechadas({ linhas }: { linhas: LinhaFechada[] }) {
   const router = useRouter();
 
   return (
-    <table className="w-full text-sm">
+    <div className="overflow-x-auto">
+    <table className="w-full text-sm min-w-[780px]">
       <thead className="bg-slate-50 text-xs uppercase text-[#706F6F]">
         <tr>
           <th className="text-left py-2 px-4 font-semibold">Pedido</th>
@@ -81,5 +82,6 @@ export function TabelaFechadas({ linhas }: { linhas: LinhaFechada[] }) {
         ))}
       </tbody>
     </table>
+    </div>
   );
 }

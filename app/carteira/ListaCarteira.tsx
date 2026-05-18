@@ -286,8 +286,8 @@ export function ListaCarteira({ linhas, podeEditar = false }: Props) {
         {pedidosTodos.length === 1 ? "pedido" : "pedidos"}
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
-      <table className="w-full text-sm">
+      <div className="bg-white border border-slate-200 rounded-2xl overflow-x-auto">
+      <table className="w-full text-sm min-w-[780px]">
         <thead className="bg-slate-50 text-xs uppercase text-[#706F6F]">
           <tr>
             <th className="w-8"></th>
