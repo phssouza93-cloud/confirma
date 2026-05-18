@@ -109,11 +109,12 @@ export function ListaWIP({ wip, podeEditar = false }: Props) {
       </div>
 
       <div className="bg-white border border-slate-200 rounded-2xl overflow-x-auto">
-        <table className="w-full text-sm min-w-[700px]">
+        <table className="w-full text-sm min-w-[820px]">
           <thead className="bg-slate-50 text-xs uppercase text-[#706F6F]">
             <tr>
               <th className="text-left py-3 px-4 font-semibold">OP</th>
-              <th className="text-left py-3 px-4 font-semibold">SKU · derivação</th>
+              <th className="text-left py-3 px-4 font-semibold">SKU</th>
+              <th className="text-left py-3 px-4 font-semibold">Derivação</th>
               <th className="text-right py-3 px-4 font-semibold">Qtd</th>
               <th className="text-left py-3 px-4 font-semibold">Data prevista</th>
               <th className="text-left py-3 px-4 font-semibold">Status</th>
@@ -122,7 +123,7 @@ export function ListaWIP({ wip, podeEditar = false }: Props) {
           <tbody className="divide-y divide-slate-100">
             {filtradas.length === 0 ? (
               <tr>
-                <td colSpan={5} className="py-10 text-center text-sm text-[#706F6F]">
+                <td colSpan={6} className="py-10 text-center text-sm text-[#706F6F]">
                   Nenhuma OP bate com os filtros atuais.
                 </td>
               </tr>
@@ -145,8 +146,16 @@ export function ListaWIP({ wip, podeEditar = false }: Props) {
                     <td className="py-2 px-4 text-sm">
                       <span className="font-mono text-xs px-1.5 py-0.5 bg-slate-100 text-slate-700 rounded">
                         {o.sku_codigo}
-                        {o.derivacao ? "·" + o.derivacao : ""}
                       </span>
+                    </td>
+                    <td className="py-2 px-4 text-sm">
+                      {o.derivacao ? (
+                        <span className="font-mono text-xs px-1.5 py-0.5 bg-[#E6F9FC] text-[#1E9DBA] rounded">
+                          {o.derivacao}
+                        </span>
+                      ) : (
+                        <span className="text-slate-300 text-xs">—</span>
+                      )}
                     </td>
                     <td className="py-2 px-4 text-right text-sm">{o.qtd_prevista}</td>
                     <td className="py-2 px-4">
