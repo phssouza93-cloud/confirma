@@ -135,6 +135,30 @@ export function ListaCarteira({ linhas, podeEditar = false }: Props) {
   >("todos");
   const [filtroAtrasados, setFiltroAtrasados] = useState(false);
 
+  type SortKey = "numero" | "cliente" | "prev" | "prazo";
+  type SortDir = "asc" | "desc";
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({
+    key: "prev",
+    dir: "asc",
+  });
+
+  function trocarSort(key: SortKey) {
+    setSort((s) =>
+      s.key === key
+        ? { key, dir: s.dir === "asc" ? "desc" : "asc" }
+        : { key, dir: "asc" }
+    );
+  }
+
+  function tsOrNaN(s: string | null, fallbackInf: boolean): number {
+    // Pra ordenar datas: nulos vão pro FINAL no asc e pro FINAL no desc também
+    // (mais útil que jogar pro topo). fallbackInf=true → +Infinity.
+    if (!s) return fallbackInf ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
+    const t = new Date(s).getTime();
+    if (isNaN(t)) return fallbackInf ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY;
+    return t;
+  }
+
   const pedidos = useMemo(() => {
     let arr = pedidosTodos.slice();
     if (filtroStatus !== "todos") {
@@ -164,8 +188,35 @@ export function ListaCarteira({ linhas, podeEditar = false }: Props) {
         return blob.includes(q);
       });
     }
+
+    // Aplica ordenação
+    const fator = sort.dir === "asc" ? 1 : -1;
+    arr.sort((a, b) => {
+      switch (sort.key) {
+        case "numero":
+          return a.numero.localeCompare(b.numero, "pt-BR", { numeric: true }) * fator;
+        case "cliente":
+          return a.cliente.localeCompare(b.cliente, "pt-BR") * fator;
+        case "prev": {
+          // Nulos sempre por último (independente da direção)
+          const da = tsOrNaN(a.prevLiberacaoAgg, true);
+          const db = tsOrNaN(b.prevLiberacaoAgg, true);
+          if (da === Number.POSITIVE_INFINITY && db !== Number.POSITIVE_INFINITY) return 1;
+          if (db === Number.POSITIVE_INFINITY && da !== Number.POSITIVE_INFINITY) return -1;
+          return (da - db) * fator;
+        }
+        case "prazo": {
+          const da = tsOrNaN(a.dataPromessa, true);
+          const db = tsOrNaN(b.dataPromessa, true);
+          if (da === Number.POSITIVE_INFINITY && db !== Number.POSITIVE_INFINITY) return 1;
+          if (db === Number.POSITIVE_INFINITY && da !== Number.POSITIVE_INFINITY) return -1;
+          return (da - db) * fator;
+        }
+      }
+    });
+
     return arr;
-  }, [pedidosTodos, busca, filtroStatus, filtroOrigem, filtroAtrasados]);
+  }, [pedidosTodos, busca, filtroStatus, filtroOrigem, filtroAtrasados, sort]);
 
   function toggle(numero: string) {
     const novo = new Set(expandido);
@@ -291,13 +342,11 @@ export function ListaCarteira({ linhas, podeEditar = false }: Props) {
         <thead className="bg-slate-50 text-xs uppercase text-[#706F6F]">
           <tr>
             <th className="w-8"></th>
-            <th className="text-left py-3 px-4 font-semibold">Pedido</th>
-            <th className="text-left py-3 px-4 font-semibold">Cliente</th>
+            <ThSort label="Pedido" col="numero" sort={sort} onClick={trocarSort} />
+            <ThSort label="Cliente" col="cliente" sort={sort} onClick={trocarSort} />
             <th className="text-left py-3 px-4 font-semibold">Itens</th>
-            <th className="text-left py-3 px-4 font-semibold">
-              Prev. liberação
-            </th>
-            <th className="text-left py-3 px-4 font-semibold">Prazo limite</th>
+            <ThSort label="Prev. liberação" col="prev" sort={sort} onClick={trocarSort} />
+            <ThSort label="Prazo limite" col="prazo" sort={sort} onClick={trocarSort} />
             <th className="text-left py-3 px-4 font-semibold">Status</th>
             <th className="w-12"></th>
           </tr>
@@ -547,3 +596,37 @@ function Chip({
     </button>
   );
 }
+
+type SortKeyExport = "numero" | "cliente" | "prev" | "prazo";
+function ThSort({
+  label,
+  col,
+  sort,
+  onClick,
+}: {
+  label: string;
+  col: SortKeyExport;
+  sort: { key: SortKeyExport; dir: "asc" | "desc" };
+  onClick: (k: SortKeyExport) => void;
+}) {
+  const ativo = sort.key === col;
+  const seta = ativo ? (sort.dir === "asc" ? "↑" : "↓") : "";
+  return (
+    <th
+      onClick={() => onClick(col)}
+      className={
+        "text-left py-3 px-4 font-semibold cursor-pointer select-none hover:bg-slate-100 transition-colors " +
+        (ativo ? "text-[#1F2C4E]" : "")
+      }
+      title={`Ordenar por ${label.toLowerCase()}`}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        <span className={"text-[10px] " + (ativo ? "opacity-100" : "opacity-30")}>
+          {seta || "↕"}
+        </span>
+      </span>
+    </th>
+  );
+}
+
