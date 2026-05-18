@@ -3,6 +3,7 @@ import { ensureAcesso } from "@/lib/auth";
 import { AppHeader } from "../components/AppHeader";
 import { ImportarWIP } from "./ImportarWIP";
 import { ListaWIP } from "./ListaWIP";
+import { NovaOpManual } from "./NovaOpManual";
 import { BotaoLimparTudo } from "../admin/BotaoLimparTudo";
 import { limparWIP } from "../admin/limpar-actions";
 
@@ -22,12 +23,16 @@ export default async function WIPPage() {
   const ctx = await ensureAcesso("/wip");
   const supabase = await createClient();
 
-  const { data: wip } = await supabase
-    .from("wip")
-    .select("*")
-    .order("op_numero");
+  const [{ data: wip }, { data: skusData }] = await Promise.all([
+    supabase.from("wip").select("*").order("op_numero"),
+    supabase
+      .from("skus")
+      .select("codigo, descricao")
+      .order("codigo"),
+  ]);
 
   const lista = (wip || []) as OP[];
+  const skusLista = (skusData || []) as { codigo: string; descricao: string }[];
 
   // Recalcula status em tempo real para refletir "atrasada" sem precisar de cron
   const hoje = new Date();
@@ -77,6 +82,7 @@ export default async function WIPPage() {
             <div className="flex items-center gap-2">
               {ctx.perfil === "admin" && (
                 <>
+                  <NovaOpManual skus={skusLista} />
                   <ImportarWIP
                     wipAtual={listaComStatus.map((o: OP) => ({
                       op_numero: o.op_numero,

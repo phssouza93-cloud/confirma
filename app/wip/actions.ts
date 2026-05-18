@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { ensureAdmin } from "@/lib/auth";
+import { formatarDerivacao } from "@/lib/derivacao";
 
 export type OPInput = {
   op_numero: string;
@@ -116,3 +118,52 @@ export async function atualizarDataPrevista(
   revalidatePath("/wip");
   return { ok: true };
 }
+
+/**
+ * Cadastra UMA OP manualmente (uso emergencial, quando o ERP não pegou ainda).
+ * Falha se op_numero já existe (não dá pra duplicar).
+ * Só admin chama. Derivação é normalizada pra 3 dígitos. Data prevista é opcional.
+ */
+export async function criarOpManual(formData: FormData) {
+  await ensureAdmin();
+  const supabase = await createClient();
+
+  const op_numero = String(formData.get("op_numero") || "").trim();
+  const sku_codigo = String(formData.get("sku_codigo") || "").trim().toUpperCase();
+  const derivacao = formatarDerivacao(formData.get("derivacao") || null);
+  const qtd_raw = String(formData.get("qtd_prevista") || "1");
+  const qtd_prevista = Math.max(1, Number(qtd_raw) || 1);
+  const data_raw = String(formData.get("data_prevista") || "").trim();
+  const data_prevista = data_raw || null;
+
+  if (!op_numero) return { ok: false, error: "Informe o número da OP" };
+  if (!sku_codigo) return { ok: false, error: "Informe o SKU" };
+
+  // Confere se OP já existe
+  const { data: jaExiste } = await supabase
+    .from("wip")
+    .select("id")
+    .eq("op_numero", op_numero)
+    .maybeSingle();
+  if (jaExiste) {
+    return {
+      ok: false,
+      error: `Já existe uma OP com número ${op_numero}. Use o botão de Importar do ERP pra atualizar.`,
+    };
+  }
+
+  const status = calcularStatus(data_prevista);
+  const { error } = await supabase.from("wip").insert({
+    op_numero,
+    sku_codigo,
+    derivacao,
+    qtd_prevista,
+    data_prevista,
+    status,
+  });
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath("/wip");
+  return { ok: true };
+}
+
