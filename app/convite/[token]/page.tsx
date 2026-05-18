@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { PERFIL_LABEL, ehPerfilValido } from "@/lib/permissoes";
 import { ConviteForm } from "./ConviteForm";
+import { LogoConfiance } from "../../components/LogoConfiance";
 
 export const dynamic = "force-dynamic";
 
@@ -35,27 +36,7 @@ export default async function ConvitePage({ params }: Props) {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-14 h-14 mb-3">
-            <svg
-              viewBox="0 0 100 100"
-              className="w-14 h-14"
-              xmlns="http://www.w3.org/2000/svg"
-              aria-hidden="true"
-            >
-              <circle
-                cx="50"
-                cy="50"
-                r="38"
-                fill="none"
-                stroke="#1F2C4E"
-                strokeWidth="12"
-              />
-              <path
-                d="M 50 88 A 38 38 0 0 0 88 50"
-                fill="none"
-                stroke="#64C3D1"
-                strokeWidth="12"
-              />
-            </svg>
+            <LogoConfiance variant="symbol" className="w-14 h-14" />
           </div>
           <h1 className="text-3xl font-black tracking-tight text-[#1F2C4E] uppercase">
             Confirma

@@ -5,6 +5,10 @@ type Props = {
 
 export function LogoConfiance({ className = "", variant = "horizontal" }: Props) {
   if (variant === "symbol") {
+    // Símbolo em formato de "C": arco escuro de 270° (topo + esquerda + base)
+    // abrindo pra direita; arco ciano fecha os 90° restantes.
+    // Pontos de transição estão a ±45° do centro (50,50) com raio 38:
+    //   ( 50 + 38·cos(±45°), 50 ± 38·sin(45°) ) ≈ (76.87, 23.13) e (76.87, 76.87)
     return (
       <svg
         viewBox="0 0 100 100"
@@ -12,12 +16,19 @@ export function LogoConfiance({ className = "", variant = "horizontal" }: Props)
         xmlns="http://www.w3.org/2000/svg"
         aria-label="Confiance Medical"
       >
-        <circle cx="50" cy="50" r="38" fill="none" stroke="#1F2C4E" strokeWidth="12" />
         <path
-          d="M 50 88 A 38 38 0 0 0 88 50"
+          d="M 76.87 23.13 A 38 38 0 1 0 76.87 76.87"
+          fill="none"
+          stroke="#1F2C4E"
+          strokeWidth="12"
+          strokeLinecap="round"
+        />
+        <path
+          d="M 76.87 23.13 A 38 38 0 0 1 76.87 76.87"
           fill="none"
           stroke="#64C3D1"
           strokeWidth="12"
+          strokeLinecap="round"
         />
       </svg>
     );
@@ -30,17 +41,23 @@ export function LogoConfiance({ className = "", variant = "horizontal" }: Props)
       xmlns="http://www.w3.org/2000/svg"
       aria-label="Confiance Medical"
     >
-      {/* Símbolo: anel azul marinho com arco ciano no canto inferior-direito */}
+      {/* Símbolo em formato de "C" — mesmo desenho, agora com raio 40 e centrado em (55, 65) */}
       <g transform="translate(55, 65)">
-        <circle cx="0" cy="0" r="40" fill="none" stroke="#1F2C4E" strokeWidth="12" />
         <path
-          d="M 0 40 A 40 40 0 0 0 40 0"
+          d="M 28.28 -28.28 A 40 40 0 1 0 28.28 28.28"
+          fill="none"
+          stroke="#1F2C4E"
+          strokeWidth="12"
+          strokeLinecap="round"
+        />
+        <path
+          d="M 28.28 -28.28 A 40 40 0 0 1 28.28 28.28"
           fill="none"
           stroke="#64C3D1"
           strokeWidth="12"
+          strokeLinecap="round"
         />
       </g>
-      {/* Wordmark */}
       <text
         x="125"
         y="62"
