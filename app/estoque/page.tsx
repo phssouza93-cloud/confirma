@@ -3,6 +3,7 @@ import { ensureAcesso } from "@/lib/auth";
 import { AppHeader } from "../components/AppHeader";
 import { ImportarEstoque } from "./ImportarEstoque";
 import { ImportarCadastroMestre } from "./ImportarCadastroMestre";
+import { AjustarEstoqueManual } from "./AjustarEstoqueManual";
 import { EstoqueClient, type LinhaEstoque } from "./EstoqueClient";
 import { BotaoLimparTudo } from "../admin/BotaoLimparTudo";
 import { limparEstoque } from "../admin/limpar-actions";
@@ -93,6 +94,14 @@ export default async function EstoquePage() {
             <div className="flex gap-2">
               {ctx.perfil === "admin" && (
                 <>
+                  {lista.length > 0 && (
+                    <AjustarEstoqueManual
+                      skus={lista.map((s) => ({
+                        codigo: s.codigo,
+                        descricao: s.descricao,
+                      }))}
+                    />
+                  )}
                   <ImportarCadastroMestre qtdAtual={lista.length} />
                   <ImportarEstoque qtdAtual={totalUnidades} />
                   {totalUnidades > 0 && (

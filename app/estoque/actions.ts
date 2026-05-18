@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { ensureAdmin } from "@/lib/auth";
+import { formatarDerivacao } from "@/lib/derivacao";
 
 export type SKUCadastroInput = {
   codigo: string;
@@ -198,3 +200,99 @@ export async function importarPosicaoEstoque(linhas: DerivacaoInput[]) {
   revalidatePath("/estoque");
   return { ok: true, derivacoes: linhasPayload.length };
 }
+
+/**
+ * Ajusta manualmente a quantidade de uma derivação específica de um SKU.
+ * O valor é ABSOLUTO (substitui o atual, não soma). Recalcula skus.estoque
+ * automaticamente como soma das derivações. Quando o SKU não tem derivações
+ * cadastradas, ajusta skus.estoque direto.
+ */
+export async function ajustarEstoqueDerivacao(formData: FormData) {
+  await ensureAdmin();
+  const supabase = await createClient();
+
+  const sku_codigo = String(formData.get("sku_codigo") || "")
+    .trim()
+    .toUpperCase();
+  const derivacao = formatarDerivacao(formData.get("derivacao") || null);
+  const qtdRaw = String(formData.get("qtd") || "0");
+  const qtd = Math.max(0, Math.round(Number(qtdRaw) || 0));
+
+  if (!sku_codigo) return { ok: false, error: "Informe o SKU" };
+
+  const { data: sku } = await supabase
+    .from("skus")
+    .select("id, codigo")
+    .eq("codigo", sku_codigo)
+    .maybeSingle();
+  if (!sku) {
+    return {
+      ok: false,
+      error: `SKU ${sku_codigo} não está cadastrado. Importe o cadastro mestre primeiro.`,
+    };
+  }
+
+  if (derivacao) {
+    // Procura row existente em estoque_derivacoes
+    const { data: existente } = await supabase
+      .from("estoque_derivacoes")
+      .select("id")
+      .eq("sku_id", sku.id)
+      .eq("derivacao", derivacao)
+      .maybeSingle();
+
+    if (existente) {
+      const { error } = await supabase
+        .from("estoque_derivacoes")
+        .update({ qtd_disponivel: qtd })
+        .eq("id", existente.id);
+      if (error) return { ok: false, error: error.message };
+    } else {
+      const { error } = await supabase.from("estoque_derivacoes").insert({
+        sku_id: sku.id,
+        derivacao,
+        qtd_disponivel: qtd,
+        deposito: "EP",
+      });
+      if (error) return { ok: false, error: error.message };
+    }
+
+    // Recalcula o total do SKU (soma das derivações)
+    const { data: derivs } = await supabase
+      .from("estoque_derivacoes")
+      .select("qtd_disponivel")
+      .eq("sku_id", sku.id);
+    const total = (derivs || []).reduce(
+      (s: number, d: { qtd_disponivel: number | null }) =>
+        s + (d.qtd_disponivel || 0),
+      0
+    );
+    await supabase
+      .from("skus")
+      .update({ estoque: total })
+      .eq("id", sku.id);
+  } else {
+    // Sem derivação: ajusta skus.estoque diretamente, mas só se o SKU
+    // não tiver derivações cadastradas (senão o número fica fora de sync).
+    const { count } = await supabase
+      .from("estoque_derivacoes")
+      .select("id", { count: "exact", head: true })
+      .eq("sku_id", sku.id);
+    if ((count || 0) > 0) {
+      return {
+        ok: false,
+        error:
+          "Esse SKU tem derivações cadastradas. Informe a derivação específica que quer ajustar.",
+      };
+    }
+    await supabase
+      .from("skus")
+      .update({ estoque: qtd })
+      .eq("id", sku.id);
+  }
+
+  revalidatePath("/estoque");
+  revalidatePath("/disponivel");
+  return { ok: true };
+}
+
