@@ -1,6 +1,10 @@
 // Motor de cálculo de prazo
 // Fórmula: Estoque Disponível = Estoque − Carteira ; WIP só entra se faltar
 //
+// Estoque, Carteira e WIP são olhados POR DERIVAÇÃO quando o item tem
+// derivação informada (ou sugerida via alias). Quando não, soma o SKU
+// inteiro como fallback (comportamento legado).
+//
 // Dois prazos calculados:
 //   • Liberação:   quando o produto fica pronto na fábrica (dias corridos)
 //   • Entrega:     liberação + 2 DIAS ÚTEIS (faturamento+expedição) +
@@ -32,6 +36,7 @@ export type SKUFull = SKUCadastro & {
 
 export type WIPDisponivel = {
   sku_codigo: string;
+  derivacao: string | null;
   qtd: number;
   data_prevista: string; // ISO
 };
@@ -40,8 +45,9 @@ export type ResultadoItem = {
   sku_codigo_input: string;
   sku_codigo_matched: string | null;
   descricao: string;
-  derivacao: string | null;
-  derivacao_sugerida: string | null; // do alias
+  derivacao: string | null;             // derivação enviada no input
+  derivacao_efetiva: string | null;     // derivação usada no cálculo (input OU sugerida pelo alias)
+  derivacao_sugerida: string | null;    // do alias (informativo)
   matched_by: "alias" | "codigo" | "descricao" | null;
   match_score: number;
   status: "ok" | "sem_cadastro" | "servico";
@@ -67,7 +73,6 @@ export type ResultadoOportunidade = {
 };
 
 function diasCorridosEntre(d1: Date, d2: Date): number {
-  // Conta dias corridos entre duas datas. Resultado nunca negativo.
   if (d2 <= d1) return 0;
   const a = new Date(d1);
   a.setHours(0, 0, 0, 0);
@@ -88,17 +93,43 @@ export function somarDiasUteis(base: Date, dias: number): Date {
   let restantes = Math.max(0, Math.round(dias));
   while (restantes > 0) {
     d.setDate(d.getDate() + 1);
-    const dow = d.getDay(); // 0 = dom, 6 = sab
+    const dow = d.getDay();
     if (dow !== 0 && dow !== 6) restantes--;
   }
   return d;
 }
 
+/**
+ * Soma os valores de um Record cujas chaves começam com `${codigo}::`.
+ * Usado pra fallback quando a derivação não está definida.
+ */
+function somarPorSku(map: Record<string, number>, codigo: string): number {
+  let s = 0;
+  const prefix = `${codigo}::`;
+  for (const k in map) {
+    if (k.startsWith(prefix)) s += map[k] || 0;
+  }
+  return s;
+}
+
+function coletarWipPorSku(
+  map: Record<string, WIPDisponivel[]>,
+  codigo: string
+): WIPDisponivel[] {
+  const out: WIPDisponivel[] = [];
+  const prefix = `${codigo}::`;
+  for (const k in map) {
+    if (k.startsWith(prefix)) out.push(...map[k]);
+  }
+  return out;
+}
+
 export function calcularItem(
   item: ItemInput,
   skus: SKUFull[],
-  carteiraReservada: Record<string, number>, // sku_codigo → qtd reservada
-  wipPorSku: Record<string, WIPDisponivel[]>, // sku_codigo → lista de OPs com data
+  estoquePorChave: Record<string, number>,
+  carteiraPorChave: Record<string, number>,
+  wipPorChave: Record<string, WIPDisponivel[]>,
   aliasMap?: Map<string, Alias>
 ): ResultadoItem {
   const m = matchSKU(
@@ -113,6 +144,7 @@ export function calcularItem(
       sku_codigo_matched: null,
       descricao: item.descricao,
       derivacao: item.derivacao,
+      derivacao_efetiva: item.derivacao,
       derivacao_sugerida: null,
       matched_by: null,
       match_score: 0,
@@ -133,13 +165,13 @@ export function calcularItem(
   const skuFull = skus.find((s) => s.codigo === m.sku!.codigo)!;
   const codigo = skuFull.codigo;
 
-  // Item de serviço — não afeta o cálculo de prazo, não tem estoque/WIP
   if (skuFull.eh_servico) {
     return {
       sku_codigo_input: item.sku_codigo,
       sku_codigo_matched: codigo,
       descricao: skuFull.descricao,
       derivacao: item.derivacao,
+      derivacao_efetiva: item.derivacao,
       derivacao_sugerida: m.derivacao_sugerida,
       matched_by: m.matched_by,
       match_score: m.score,
@@ -157,16 +189,31 @@ export function calcularItem(
     };
   }
 
-  const estoque = skuFull.estoque;
-  const carteira = carteiraReservada[codigo] || 0;
+  // Derivação efetiva: o que o cliente quer especificamente.
+  // Prioridade: derivação do input > derivacao_sugerida pelo alias.
+  const derivEfetiva = item.derivacao || m.derivacao_sugerida || null;
+
+  // Olha os números POR DERIVAÇÃO quando definida; senão, soma o SKU inteiro.
+  let estoque: number;
+  let carteira: number;
+  let wipOps: WIPDisponivel[];
+  if (derivEfetiva) {
+    const chave = `${codigo}::${derivEfetiva}`;
+    estoque = estoquePorChave[chave] || 0;
+    carteira = carteiraPorChave[chave] || 0;
+    wipOps = (wipPorChave[chave] || []).slice();
+  } else {
+    estoque = somarPorSku(estoquePorChave, codigo);
+    carteira = somarPorSku(carteiraPorChave, codigo);
+    wipOps = coletarWipPorSku(wipPorChave, codigo);
+  }
+
   const disponivel = Math.max(0, estoque - carteira);
-  const wipOps = (wipPorSku[codigo] || [])
-    .slice()
-    .sort(
-      (a, b) =>
-        new Date(a.data_prevista).getTime() -
-        new Date(b.data_prevista).getTime()
-    );
+  wipOps.sort(
+    (a, b) =>
+      new Date(a.data_prevista).getTime() -
+      new Date(b.data_prevista).getTime()
+  );
   const wipTotal = wipOps.reduce((s, x) => s + x.qtd, 0);
 
   const qtd = item.quantidade;
@@ -190,7 +237,6 @@ export function calcularItem(
     const falta = qtd - disponivel;
     if (falta <= wipTotal) {
       consumo_wip = falta;
-      // pega a data da OP que cobre o último item necessário
       let acumulado = 0;
       let dataWip = wipOps.length
         ? new Date(wipOps[wipOps.length - 1].data_prevista)
@@ -211,8 +257,7 @@ export function calcularItem(
       consumo_producao_zero = falta - wipTotal;
       fonte = "producao_zero";
       if (skuFull.lead_time_dias == null) {
-        // Sem lead time definido pelo PCP → não dá pra prometer prazo
-        prazo_dias = -1; // sentinela: substituído por null no retorno
+        prazo_dias = -1;
       } else {
         prazo_dias = skuFull.lead_time_dias;
       }
@@ -224,6 +269,7 @@ export function calcularItem(
     sku_codigo_matched: codigo,
     descricao: skuFull.descricao,
     derivacao: item.derivacao,
+    derivacao_efetiva: derivEfetiva,
     derivacao_sugerida: m.derivacao_sugerida,
     matched_by: m.matched_by,
     match_score: m.score,
@@ -244,23 +290,21 @@ export function calcularItem(
 export function calcularOportunidade(
   itens: (ItemInput & { preco_unitario?: number })[],
   skus: SKUFull[],
-  carteiraReservada: Record<string, number>,
-  wipPorSku: Record<string, WIPDisponivel[]>,
+  estoquePorChave: Record<string, number>,
+  carteiraPorChave: Record<string, number>,
+  wipPorChave: Record<string, WIPDisponivel[]>,
   aliasMap?: Map<string, Alias>,
   uf?: string | null
 ): ResultadoOportunidade {
   const resultados = itens.map((it) =>
-    calcularItem(it, skus, carteiraReservada, wipPorSku, aliasMap)
+    calcularItem(it, skus, estoquePorChave, carteiraPorChave, wipPorChave, aliasMap)
   );
-  // Se algum item está em produção do zero sem lead time definido,
-  // não dá pra prometer prazo. O prazo geral vira "sob consulta".
   const temProducaoSemLeadTime = resultados.some(
     (r) =>
       r.status === "ok" &&
       r.fonte === "producao_zero" &&
       r.prazo_dias == null
   );
-  // Prazo = MAX (regra do gargalo)
   const prazos = resultados
     .filter((r) => r.status === "ok" && r.prazo_dias != null)
     .map((r) => r.prazo_dias as number);
@@ -269,8 +313,6 @@ export function calcularOportunidade(
     : prazos.length
     ? Math.max(...prazos)
     : null;
-  // Gargalo só é destacado quando UM ÚNICO item tem o maior prazo.
-  // Se houver empate no máximo (ex.: todos atendem em 0d), não destaca ninguém.
   let gargaloIdx: number | null = null;
   if (prazo != null) {
     const indicesNoMax: number[] = [];
@@ -286,19 +328,13 @@ export function calcularOportunidade(
     0
   );
 
-  // Prazo de ENTREGA = liberação (corridos) + 2 DIAS ÚTEIS (faturamento/
-  // expedição, pulando fim de semana) + transporte (corridos), tudo
-  // convertido em dias corridos no resultado final.
   const diasTransporte = diasTransporteDoUF(uf);
   let prazoEntrega: number | null = null;
   if (prazo != null) {
     const hoje = new Date();
     hoje.setHours(0, 0, 0, 0);
-    // 1) data em que a liberação fica pronta (dias corridos)
     const dataLiberacao = somarDiasCorridos(hoje, prazo);
-    // 2) +2 dias úteis de faturamento/expedição (pulando sab/dom)
     const dataEnvio = somarDiasUteis(dataLiberacao, FATURAMENTO_EXPEDICAO_DIAS);
-    // 3) +transporte em dias corridos (se UF reconhecida; senão pula essa etapa)
     const dataEntrega = somarDiasCorridos(dataEnvio, diasTransporte ?? 0);
     prazoEntrega = diasCorridosEntre(hoje, dataEntrega);
   }

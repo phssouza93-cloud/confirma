@@ -64,6 +64,7 @@ export default async function DashboardPage() {
     { data: oppsData },
     { data: itensData },
     { data: skusData },
+    { data: derivData },
     { data: carteiraData },
     { data: wipData },
     { data: aliasesData },
@@ -81,11 +82,14 @@ export default async function DashboardPage() {
       .from("skus")
       .select("id, codigo, descricao, estoque, lead_time_dias, eh_servico"),
     supabase
+      .from("estoque_derivacoes")
+      .select("sku_id, derivacao, qtd_disponivel"),
+    supabase
       .from("carteira_pedidos")
-      .select("sku_codigo, quantidade, status"),
+      .select("sku_codigo, derivacao, quantidade, status"),
     supabase
       .from("wip")
-      .select("sku_codigo, qtd_prevista, data_prevista, status"),
+      .select("sku_codigo, derivacao, qtd_prevista, data_prevista, status"),
     supabase
       .from("sku_aliases")
       .select("descricao_alias, sku_codigo, derivacao"),
@@ -122,21 +126,40 @@ export default async function DashboardPage() {
           );
         })();
 
-  const carteiraReservada: Record<string, number> = {};
+  // Estoque por chave (codigo::derivacao). Vem de estoque_derivacoes.
+  // SKUs sem rows lá caem na chave `${codigo}::` com s.estoque total.
+  const estoquePorChave: Record<string, number> = {};
+  const skuComDerivacao = new Set<string>();
+  type Derivacao = { sku_id: string; derivacao: string | null; qtd_disponivel: number };
+  (derivData as Derivacao[] | null || []).forEach((d) => {
+    const codigo = skus.find((s) => s.id === d.sku_id)?.codigo;
+    if (!codigo) return;
+    skuComDerivacao.add(codigo);
+    const chave = `${codigo}::${d.derivacao || ""}`;
+    estoquePorChave[chave] = (estoquePorChave[chave] || 0) + (d.qtd_disponivel || 0);
+  });
+  skus.forEach((s) => {
+    if (!skuComDerivacao.has(s.codigo)) {
+      estoquePorChave[`${s.codigo}::`] = s.estoque || 0;
+    }
+  });
+
+  const carteiraPorChave: Record<string, number> = {};
   (carteiraData || []).forEach(
-    (l: { sku_codigo: string; quantidade: number; status: string }) => {
+    (l: { sku_codigo: string; derivacao: string | null; quantidade: number; status: string }) => {
       if (l.status === "liberado") return;
-      carteiraReservada[l.sku_codigo] =
-        (carteiraReservada[l.sku_codigo] || 0) + (l.quantidade || 0);
+      const chave = `${l.sku_codigo}::${l.derivacao || ""}`;
+      carteiraPorChave[chave] = (carteiraPorChave[chave] || 0) + (l.quantidade || 0);
     }
   );
 
-  const wipPorSku: Record<string, WIPDisponivel[]> = {};
+  const wipPorChave: Record<string, WIPDisponivel[]> = {};
   const hoje = new Date();
   hoje.setHours(0, 0, 0, 0);
   (wipData || []).forEach(
     (w: {
       sku_codigo: string;
+      derivacao: string | null;
       qtd_prevista: number;
       data_prevista: string | null;
       status: string;
@@ -144,9 +167,11 @@ export default async function DashboardPage() {
       if (!w.data_prevista) return;
       const dt = new Date(w.data_prevista);
       if (dt < hoje) return;
-      if (!wipPorSku[w.sku_codigo]) wipPorSku[w.sku_codigo] = [];
-      wipPorSku[w.sku_codigo].push({
+      const chave = `${w.sku_codigo}::${w.derivacao || ""}`;
+      if (!wipPorChave[chave]) wipPorChave[chave] = [];
+      wipPorChave[chave].push({
         sku_codigo: w.sku_codigo,
+        derivacao: w.derivacao,
         qtd: w.qtd_prevista || 1,
         data_prevista: w.data_prevista,
       });
@@ -272,8 +297,9 @@ export default async function DashboardPage() {
         preco_unitario: it.preco_unitario,
       })),
       skus,
-      carteiraReservada,
-      wipPorSku,
+      estoquePorChave,
+      carteiraPorChave,
+      wipPorChave,
       aliasMap
     );
     if (res.prazo_dias == null && o.fase === "Commit") oppsSobConsulta++;

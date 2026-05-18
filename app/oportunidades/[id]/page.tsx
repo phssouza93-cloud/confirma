@@ -109,25 +109,45 @@ export default async function DetalheOportunidade({ params }: Props) {
     codigoParaId[s.codigo] = s.id;
   });
 
+  // Estoque por chave (codigo::derivacao). Vem da tabela estoque_derivacoes.
+  // SKUs sem estoque por derivação caem na chave `${codigo}::` com s.estoque total.
+  const estoquePorChave: Record<string, number> = {};
+  const skuComDerivacao = new Set<string>();
+  (derivData || []).forEach((d: Derivacao) => {
+    const codigo = skus.find((s) => s.id === d.sku_id)?.codigo;
+    if (!codigo) return;
+    skuComDerivacao.add(codigo);
+    const chave = `${codigo}::${d.derivacao || ""}`;
+    estoquePorChave[chave] = (estoquePorChave[chave] || 0) + (d.qtd_disponivel || 0);
+  });
+  skus.forEach((s) => {
+    if (!skuComDerivacao.has(s.codigo)) {
+      estoquePorChave[`${s.codigo}::`] = s.estoque || 0;
+    }
+  });
+
   const { data: carteiraData } = await supabase
     .from("carteira_pedidos")
-    .select("sku_codigo, quantidade, status");
-  const carteiraReservada: Record<string, number> = {};
-  (carteiraData || []).forEach((l: { sku_codigo: string; quantidade: number; status: string }) => {
-    if (l.status === "liberado") return;
-    carteiraReservada[l.sku_codigo] =
-      (carteiraReservada[l.sku_codigo] || 0) + (l.quantidade || 0);
-  });
+    .select("sku_codigo, derivacao, quantidade, status");
+  const carteiraPorChave: Record<string, number> = {};
+  (carteiraData || []).forEach(
+    (l: { sku_codigo: string; derivacao: string | null; quantidade: number; status: string }) => {
+      if (l.status === "liberado") return;
+      const chave = `${l.sku_codigo}::${l.derivacao || ""}`;
+      carteiraPorChave[chave] = (carteiraPorChave[chave] || 0) + (l.quantidade || 0);
+    }
+  );
 
   const { data: wipData } = await supabase
     .from("wip")
-    .select("sku_codigo, qtd_prevista, data_prevista, status");
-  const wipPorSku: Record<string, WIPDisponivel[]> = {};
+    .select("sku_codigo, derivacao, qtd_prevista, data_prevista, status");
+  const wipPorChave: Record<string, WIPDisponivel[]> = {};
   const hoje = new Date();
   hoje.setHours(0, 0, 0, 0);
   (wipData || []).forEach(
     (w: {
       sku_codigo: string;
+      derivacao: string | null;
       qtd_prevista: number;
       data_prevista: string | null;
       status: string;
@@ -135,9 +155,11 @@ export default async function DetalheOportunidade({ params }: Props) {
       if (!w.data_prevista) return;
       const dt = new Date(w.data_prevista);
       if (dt < hoje) return;
-      if (!wipPorSku[w.sku_codigo]) wipPorSku[w.sku_codigo] = [];
-      wipPorSku[w.sku_codigo].push({
+      const chave = `${w.sku_codigo}::${w.derivacao || ""}`;
+      if (!wipPorChave[chave]) wipPorChave[chave] = [];
+      wipPorChave[chave].push({
         sku_codigo: w.sku_codigo,
+        derivacao: w.derivacao,
         qtd: w.qtd_prevista || 1,
         data_prevista: w.data_prevista,
       });
@@ -158,8 +180,9 @@ export default async function DetalheOportunidade({ params }: Props) {
       preco_unitario: it.preco_unitario,
     })),
     skus,
-    carteiraReservada,
-    wipPorSku,
+    estoquePorChave,
+    carteiraPorChave,
+    wipPorChave,
     aliasMap,
     opp.regiao
   );
