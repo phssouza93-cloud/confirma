@@ -109,12 +109,12 @@ export default async function OportunidadesPage() {
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <a
+              <Link
                 href="/oportunidades/nova"
                 className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold uppercase tracking-wider text-xs px-4 py-2 rounded-lg"
               >
                 + Nova oportunidade
-              </a>
+              </Link>
               <ImportarPdfOportunidade skus={(skusData || []) as { id: string; codigo: string; descricao: string }[]} aliases={(aliasesData || []) as { descricao_alias: string; sku_codigo: string; derivacao: string | null }[]} />
               {ctx.perfil === "admin" && <ImportarOportunidades qtdAtual={lista.length} />}
               {ctx.perfil === "admin" && lista.length > 0 && (
@@ -154,12 +154,12 @@ export default async function OportunidadesPage() {
                   : "Você ainda não tem oportunidades atribuídas. Quando uma for criada com seu nome como owner, ela aparecerá aqui."}
               </p>
               <div className="flex items-center justify-center gap-2 flex-wrap">
-                <a
+                <Link
                   href="/oportunidades/nova"
                   className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold uppercase tracking-wider text-xs px-4 py-2 rounded-lg"
                 >
                   + Nova oportunidade
-                </a>
+                </Link>
                 <ImportarPdfOportunidade skus={(skusData || []) as { id: string; codigo: string; descricao: string }[]} aliases={(aliasesData || []) as { descricao_alias: string; sku_codigo: string; derivacao: string | null }[]} />
                 {ctx.perfil === "admin" && <ImportarOportunidades qtdAtual={0} />}
               </div>

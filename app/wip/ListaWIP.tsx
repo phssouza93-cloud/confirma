@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useSearchParams } from "next/navigation";
 import { atualizarDataPrevista } from "./actions";
 
@@ -27,14 +27,12 @@ export function ListaWIP({ wip, podeEditar = false }: Props) {
   const [busca, setBusca] = useState("");
   const [filtroStatus, setFiltroStatus] = useState<
     "todos" | "aguardando" | "atrasada" | "em_producao"
-  >("todos");
-
-  // Aplica filtro automaticamente quando vem da URL (ex.: /wip?filtro=aguardando)
-  useEffect(() => {
-    if (filtroQS === "aguardando") setFiltroStatus("aguardando");
-    else if (filtroQS === "atrasada") setFiltroStatus("atrasada");
-    else if (filtroQS === "em_producao") setFiltroStatus("em_producao");
-  }, [filtroQS]);
+  >(() => {
+    if (filtroQS === "aguardando") return "aguardando";
+    if (filtroQS === "atrasada") return "atrasada";
+    if (filtroQS === "em_producao") return "em_producao";
+    return "todos";
+  });
 
   const filtradas = useMemo(() => {
     let arr = wip.slice();

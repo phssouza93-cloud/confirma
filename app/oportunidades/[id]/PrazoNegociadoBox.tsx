@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useEffect } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { salvarPrazoNegociado } from "./actions";
 
@@ -22,13 +22,14 @@ export function PrazoNegociadoBox({
   const [valor, setValor] = useState<string>(
     valorInicial != null ? String(valorInicial) : ""
   );
+  const [valorInicialAnterior, setValorInicialAnterior] = useState(valorInicial);
   const [salvo, setSalvo] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
-  // Se o valor inicial vier do server (refresh), sincroniza
-  useEffect(() => {
+  if (valorInicial !== valorInicialAnterior) {
+    setValorInicialAnterior(valorInicial);
     setValor(valorInicial != null ? String(valorInicial) : "");
-  }, [valorInicial]);
+  }
 
   function salvar() {
     setErro(null);
