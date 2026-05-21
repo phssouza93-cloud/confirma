@@ -4,6 +4,7 @@ import { logoutAction } from "../login/actions";
 import { temAcesso, PERFIL_LABEL, ehPerfilValido } from "@/lib/permissoes";
 import { GearMenu } from "./GearMenu";
 import { HeartbeatPing } from "./HeartbeatPing";
+import { MobileNavMenu } from "./MobileNavMenu";
 
 type Props = {
   nome: string;
@@ -38,10 +39,11 @@ export function AppHeader({ nome, perfil, rotaAtiva }: Props) {
   return (
     <header className="bg-white border-b border-slate-100">
       <HeartbeatPing />
-      <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between gap-6">
-        <div className="flex items-center gap-8">
-          <Link href="/">
-            <LogoConfiance className="h-9 w-auto" />
+      <div className="max-w-7xl mx-auto px-4 md:px-6 py-3 flex items-center justify-between gap-3 md:gap-6">
+        <div className="flex items-center gap-2 md:gap-8 flex-1 min-w-0">
+          <MobileNavMenu itens={navVisivel} rotaAtiva={rotaAtiva} />
+          <Link href="/" className="shrink-0">
+            <LogoConfiance className="h-8 md:h-9 w-auto" />
           </Link>
           <nav className="hidden md:flex items-center gap-1">
             {navVisivel.map((item) => {
@@ -63,7 +65,7 @@ export function AppHeader({ nome, perfil, rotaAtiva }: Props) {
             })}
           </nav>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 md:gap-2">
           {isAdmin && <GearMenu rotaAtiva={rotaAtiva} />}
           <div className="text-right hidden sm:block">
             <div className="text-xs font-semibold text-[#1F2C4E]">{nome}</div>
@@ -71,13 +73,13 @@ export function AppHeader({ nome, perfil, rotaAtiva }: Props) {
               {perfilLabel}
             </div>
           </div>
-          <span className="w-9 h-9 rounded-full bg-[#E6F9FC] text-[#1E9DBA] flex items-center justify-center font-bold text-sm">
+          <span className="w-9 h-9 rounded-full bg-[#E6F9FC] text-[#1E9DBA] flex items-center justify-center font-bold text-sm shrink-0">
             {iniciais}
           </span>
           <form action={logoutAction}>
             <button
               type="submit"
-              className="text-xs uppercase tracking-wider font-semibold text-[#706F6F] hover:text-[#1F2C4E] px-3 py-2 rounded-lg hover:bg-slate-50 transition"
+              className="text-xs uppercase tracking-wider font-semibold text-[#706F6F] hover:text-[#1F2C4E] px-2 md:px-3 py-2 rounded-lg hover:bg-slate-50 transition"
               title="Sair"
             >
               Sair
