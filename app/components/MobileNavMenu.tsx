@@ -14,11 +14,6 @@ export function MobileNavMenu({
 }) {
   const [aberto, setAberto] = useState(false);
 
-  // Fecha o menu quando o usuário muda de rota
-  useEffect(() => {
-    setAberto(false);
-  }, [rotaAtiva]);
-
   // Trava scroll do body quando o drawer está aberto
   useEffect(() => {
     if (typeof document === "undefined") return;
